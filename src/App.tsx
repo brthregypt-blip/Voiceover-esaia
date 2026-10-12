@@ -16,6 +16,13 @@ import {
   AlertCircle,
   Trash2,
   Globe,
+  Users,
+  Mic,
+  Compass,
+  Plus,
+  Volume2,
+  ChevronRight,
+  Sparkle,
 } from 'lucide-react';
 import {
   Language,
@@ -28,6 +35,15 @@ import {
   AR_VOICE_ARCHETYPES,
   AR_SCENE_PRESETS,
 } from './i18n';
+import {
+  VOICE_CATALOG,
+  VoicePersona,
+  VoiceCategory,
+  MULTI_CHARACTER_PRESETS,
+  MultiCharacterStoryPreset,
+  StoryCharacter,
+  DialogueTurn,
+} from './voiceCatalog';
 
 // ============================================================================
 // 1. Preset 16-Beat Screenplay ("Precinct 69 Transcripts")
@@ -940,6 +956,71 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  // Top Studio Mode: 'solo' (Solo 16-Beat Monologue) vs 'multi' (Multi-Character Ensemble Story)
+  const [appMode, setAppMode] = useState<'solo' | 'multi'>('solo');
+
+  // Multi-Character Mode States
+  const [multiSubMode, setMultiSubMode] = useState<'preset' | 'custom'>('preset');
+  const [selectedMultiPresetId, setSelectedMultiPresetId] = useState<string>(MULTI_CHARACTER_PRESETS[0].id);
+
+  // Cast of Characters for Custom Dialogue Story
+  const [customCast, setCustomCast] = useState<StoryCharacter[]>(() => [
+    {
+      id: 'char-1',
+      name: lang === 'ar' ? 'المحقق كريم' : 'Det. Karim',
+      role: lang === 'ar' ? 'محقق جرائم غامضة' : 'Lead Detective',
+      category: 'male',
+      voicePersonaId: 'charon-male',
+      fallbackVoice: 'Charon',
+      avatarEmoji: '🕵️‍♂️',
+      color: 'border-slate-500 bg-slate-50 text-slate-800',
+    },
+    {
+      id: 'char-2',
+      name: lang === 'ar' ? 'د. ليلى' : 'Dr. Layla',
+      role: lang === 'ar' ? 'طبيبة طوارئ' : 'ER Surgeon',
+      category: 'female',
+      voicePersonaId: 'aoede-female',
+      fallbackVoice: 'Aoede',
+      avatarEmoji: '👩‍⚕️',
+      color: 'border-rose-400 bg-rose-50 text-rose-800',
+    },
+    {
+      id: 'char-3',
+      name: lang === 'ar' ? 'الطفل سامي' : 'Little Sami',
+      role: lang === 'ar' ? 'طفل شاهد 7 سنوات' : '7yo Witness Boy',
+      category: 'child',
+      voicePersonaId: 'sami-child-boy',
+      fallbackVoice: 'Puck',
+      avatarEmoji: '🧒',
+      color: 'border-teal-400 bg-teal-50 text-teal-800',
+    },
+  ]);
+
+  const [customDialogueTopic, setCustomDialogueTopic] = useState<string>(() =>
+    lang === 'ar'
+      ? 'جلسة تحقيق سريعة في المستشفى مع طبيبة وطفل شاهد حول ليلة الحادث الغامض'
+      : 'A fast-paced hospital interrogation between a detective, a doctor, and a 7yo witness boy about the mysterious incident',
+  );
+  const [customDialogueTurns, setCustomDialogueTurns] = useState<DialogueTurn[]>([]);
+  const [isGeneratingDialogueScript, setIsGeneratingDialogueScript] = useState<boolean>(false);
+
+  // Active Multi-Character Playback State (for Teleprompter in Multi-Character Mode)
+  const [activeDialogueTitle, setActiveDialogueTitle] = useState<string>('');
+  const [activeDialogueCharacters, setActiveDialogueCharacters] = useState<StoryCharacter[]>([]);
+  const [activeDialogueTurns, setActiveDialogueTurns] = useState<DialogueTurn[]>([]);
+  const [activeTurnIndex, setActiveTurnIndex] = useState<number>(0);
+  const [isMultiStoryActive, setIsMultiStoryActive] = useState<boolean>(false);
+  const [multiWavCache, setMultiWavCache] = useState<Record<string, { url: string; turns: DialogueTurn[] }>>({});
+
+  // Voice Catalog Explorer Modal
+  const [isVoiceExplorerOpen, setIsVoiceExplorerOpen] = useState<boolean>(false);
+  const [voiceFilterCategory, setVoiceFilterCategory] = useState<'all' | 'female' | 'male' | 'youth' | 'child'>('all');
+  const [voiceTargetCharacterId, setVoiceTargetCharacterId] = useState<string | null>(null);
+
+  // Playback Speed (0.75x, 1x, 1.25x)
+  const [playbackSpeed, setPlaybackSpeed] = useState<number>(1.0);
+
   // 1-Take Audio State
   const [isSynthesizing, setIsSynthesizing] = useState<boolean>(false);
   const [synthStatus, setSynthStatus] = useState<string>('');
@@ -952,22 +1033,36 @@ export default function App() {
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const beatRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const turnRefs = useRef<(HTMLDivElement | null)[]>([]);
   const scrollViewportRef = useRef<HTMLDivElement | null>(null);
 
   // Smoothly center the active beat inside the vertical scrolling teleprompter
   useEffect(() => {
     if (!isStoryMode) return;
-    const activeEl = beatRefs.current[activeBeatIndex];
-    const viewport = scrollViewportRef.current;
-    if (activeEl && viewport) {
-      const targetScrollTop =
-        activeEl.offsetTop - viewport.clientHeight / 2 + activeEl.clientHeight / 2;
-      viewport.scrollTo({
-        top: targetScrollTop,
-        behavior: 'smooth',
-      });
+    if (isMultiStoryActive) {
+      const activeEl = turnRefs.current[activeTurnIndex];
+      const viewport = scrollViewportRef.current;
+      if (activeEl && viewport) {
+        const targetScrollTop =
+          activeEl.offsetTop - viewport.clientHeight / 2 + activeEl.clientHeight / 2;
+        viewport.scrollTo({
+          top: targetScrollTop,
+          behavior: 'smooth',
+        });
+      }
+    } else {
+      const activeEl = beatRefs.current[activeBeatIndex];
+      const viewport = scrollViewportRef.current;
+      if (activeEl && viewport) {
+        const targetScrollTop =
+          activeEl.offsetTop - viewport.clientHeight / 2 + activeEl.clientHeight / 2;
+        viewport.scrollTo({
+          top: targetScrollTop,
+          behavior: 'smooth',
+        });
+      }
     }
-  }, [activeBeatIndex, isStoryMode, isSynthesizing]);
+  }, [activeBeatIndex, activeTurnIndex, isStoryMode, isMultiStoryActive, isSynthesizing]);
 
   // Auto-fetch authoritative API key from server environment on mount
   useEffect(() => {
@@ -1024,7 +1119,9 @@ export default function App() {
     setIsPlaying(false);
     setCurrentTime(0);
     setActiveBeatIndex(0);
+    setActiveTurnIndex(0);
     setIsStoryMode(false);
+    setIsMultiStoryActive(false);
   };
 
   // Switch between Precinct 69 Preset and Create Your Own on the Front Page
@@ -1115,21 +1212,41 @@ export default function App() {
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
-      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
-        e.preventDefault();
-        const nextIdx = Math.min(beats.length - 1, activeBeatIndex + 1);
-        setActiveBeatIndex(nextIdx);
-        if (audioRef.current && oneTakeWavUrl) {
-          audioRef.current.currentTime = beats[nextIdx].start + 0.04;
+      if (isMultiStoryActive && activeDialogueTurns.length > 0) {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          const nextIdx = Math.min(activeDialogueTurns.length - 1, activeTurnIndex + 1);
+          setActiveTurnIndex(nextIdx);
+          if (audioRef.current && oneTakeWavUrl) {
+            audioRef.current.currentTime = activeDialogueTurns[nextIdx].start + 0.04;
+          }
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          const prevIdx = Math.max(0, activeTurnIndex - 1);
+          setActiveTurnIndex(prevIdx);
+          if (audioRef.current && oneTakeWavUrl) {
+            audioRef.current.currentTime = activeDialogueTurns[prevIdx].start + 0.04;
+          }
         }
-      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
-        e.preventDefault();
-        const prevIdx = Math.max(0, activeBeatIndex - 1);
-        setActiveBeatIndex(prevIdx);
-        if (audioRef.current && oneTakeWavUrl) {
-          audioRef.current.currentTime = beats[prevIdx].start + 0.04;
+      } else {
+        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          const nextIdx = Math.min(beats.length - 1, activeBeatIndex + 1);
+          setActiveBeatIndex(nextIdx);
+          if (audioRef.current && oneTakeWavUrl) {
+            audioRef.current.currentTime = beats[nextIdx].start + 0.04;
+          }
+        } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+          e.preventDefault();
+          const prevIdx = Math.max(0, activeBeatIndex - 1);
+          setActiveBeatIndex(prevIdx);
+          if (audioRef.current && oneTakeWavUrl) {
+            audioRef.current.currentTime = beats[prevIdx].start + 0.04;
+          }
         }
-      } else if (e.key === ' ') {
+      }
+
+      if (e.key === ' ') {
         if (oneTakeWavUrl && audioRef.current) {
           e.preventDefault();
           if (audioRef.current.paused) {
@@ -1143,7 +1260,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeBeatIndex, beats, oneTakeWavUrl, isStoryMode]);
+  }, [activeBeatIndex, activeTurnIndex, beats, activeDialogueTurns, oneTakeWavUrl, isStoryMode, isMultiStoryActive]);
 
   // ============================================================================
   // Step 1: Create Prompted Voice (`POST /v1beta/voices` with store=True)
@@ -1675,15 +1792,364 @@ export default function App() {
     }
   };
 
+  // ============================================================================
+  // MULTI-CHARACTER STORY HANDLERS (Presets, Custom Studio, Synthesis & Playback)
+  // ============================================================================
+  const handleStartMultiPresetStory = async (presetId: string) => {
+    const preset = MULTI_CHARACTER_PRESETS.find((p) => p.id === presetId) || MULTI_CHARACTER_PRESETS[0];
+    const turns = lang === 'ar' ? preset.turnsAr : preset.turnsEn;
+    const title = lang === 'ar' ? preset.titleAr : preset.titleEn;
+    const cacheKey = `${preset.id}_${lang}`;
+
+    if (multiWavCache[cacheKey] && audioRef.current) {
+      const cached = multiWavCache[cacheKey];
+      setActiveDialogueTitle(title);
+      setActiveDialogueCharacters(preset.characters);
+      setActiveDialogueTurns(cached.turns);
+      setOneTakeWavUrl(cached.url);
+      setIsMultiStoryActive(true);
+      setIsStoryMode(true);
+      setActiveTurnIndex(0);
+      if (audioRef.current.src !== cached.url) {
+        audioRef.current.src = cached.url;
+      }
+      audioRef.current.playbackRate = playbackSpeed;
+      audioRef.current.play().catch(() => {});
+      return;
+    }
+
+    const key = await ensureApiKey();
+    if (!key) {
+      setErrorMsg('Gemini API key is not configured in the AI Studio environment.');
+      return;
+    }
+
+    setIsSynthesizing(true);
+    setErrorMsg(null);
+    setSynthStatus(t.synthesizingDialogue);
+    setIsMultiStoryActive(true);
+    setIsStoryMode(true);
+    setActiveDialogueTitle(title);
+    setActiveDialogueCharacters(preset.characters);
+    setActiveDialogueTurns(turns);
+    setActiveTurnIndex(0);
+
+    try {
+      const turnsPayload = turns.map((turn) => {
+        const char = preset.characters.find((c) => c.id === turn.characterId);
+        const persona = VOICE_CATALOG.find((v) => v.id === char?.voicePersonaId);
+        return {
+          turnIndex: turn.turnIndex,
+          characterId: turn.characterId,
+          speakerName: turn.speakerName,
+          voiceId: persona?.prebuiltVoice || char?.fallbackVoice || 'Aoede',
+          fallbackVoice: char?.fallbackVoice || 'Aoede',
+          style: turn.style,
+          text: turn.text,
+        };
+      });
+
+      const resp = await fetch('/api/synthesize-dialogue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({
+          modelName,
+          turns: turnsPayload,
+          apiKey: key,
+        }),
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`SynthesizeDialogue error (HTTP ${resp.status}): ${errText.slice(0, 200)}`);
+      }
+
+      const data = await resp.json();
+      if (!data.wavBase64) {
+        throw new Error('No audio returned from dialogue synthesis.');
+      }
+
+      const wavBytes = base64ToUint8Array(data.wavBase64);
+      const wavBlob = new Blob([wavBytes as unknown as BlobPart], { type: 'audio/wav' });
+      const wavUrl = URL.createObjectURL(wavBlob);
+
+      const finalTurns: DialogueTurn[] = data.turns || turns;
+      setMultiWavCache((prev) => ({
+        ...prev,
+        [cacheKey]: { url: wavUrl, turns: finalTurns },
+      }));
+
+      setActiveDialogueTurns(finalTurns);
+      setOneTakeWavUrl(wavUrl);
+      setIsSynthesizing(false);
+      setSynthStatus('');
+
+      if (audioRef.current) {
+        audioRef.current.src = wavUrl;
+        audioRef.current.currentTime = 0;
+        audioRef.current.playbackRate = playbackSpeed;
+        audioRef.current.play().catch(() => {});
+      }
+    } catch (err: any) {
+      console.error('[Multi-Voice TTS] Synthesis failed:', err);
+      setIsSynthesizing(false);
+      setSynthStatus('');
+      setErrorMsg(err?.message || String(err));
+    }
+  };
+
+  const handleGenerateCustomDialogueScript = async () => {
+    const key = await ensureApiKey();
+    if (!key) {
+      setErrorMsg('Gemini API key is not configured in the AI Studio environment.');
+      return;
+    }
+    if (!customDialogueTopic.trim() || customCast.length < 2) return;
+
+    setIsGeneratingDialogueScript(true);
+    setErrorMsg(null);
+    try {
+      const resp = await fetch('/api/generate-dialogue-story', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({
+          sceneTopic: customDialogueTopic,
+          characters: customCast,
+          language: lang,
+          apiKey: key,
+        }),
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`Story generation error: ${errText.slice(0, 200)}`);
+      }
+
+      const data = await resp.json();
+      if (Array.isArray(data.turns) && data.turns.length > 0) {
+        const formattedTurns: DialogueTurn[] = data.turns.map((t: any, i: number) => ({
+          turnIndex: i,
+          characterId: t.characterId || customCast[i % customCast.length].id,
+          speakerName: t.speakerName || customCast[i % customCast.length].name,
+          style: t.style || 'Expressive dialogue',
+          text: t.text || '',
+          start: i * 5,
+          end: (i + 1) * 5,
+        }));
+        setCustomDialogueTurns(formattedTurns);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || String(err));
+    } finally {
+      setIsGeneratingDialogueScript(false);
+    }
+  };
+
+  const handleSynthesizeAndPlayCustomDialogue = async () => {
+    const key = await ensureApiKey();
+    if (!key) {
+      setErrorMsg('Gemini API key is not configured in the AI Studio environment.');
+      return;
+    }
+
+    let turnsToPlay = customDialogueTurns;
+    if (turnsToPlay.length === 0) {
+      setIsSynthesizing(true);
+      setSynthStatus(t.generatingScript);
+      setErrorMsg(null);
+      try {
+        const resp = await fetch('/api/generate-dialogue-story', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          body: JSON.stringify({
+            sceneTopic: customDialogueTopic,
+            characters: customCast,
+            language: lang,
+            apiKey: key,
+          }),
+        });
+        if (resp.ok) {
+          const data = await resp.json();
+          if (Array.isArray(data.turns)) {
+            turnsToPlay = data.turns.map((t: any, i: number) => ({
+              turnIndex: i,
+              characterId: t.characterId || customCast[i % customCast.length].id,
+              speakerName: t.speakerName || customCast[i % customCast.length].name,
+              style: t.style || 'Expressive dialogue',
+              text: t.text || '',
+              start: i * 5,
+              end: (i + 1) * 5,
+            }));
+            setCustomDialogueTurns(turnsToPlay);
+          }
+        }
+      } catch (err: any) {
+        setIsSynthesizing(false);
+        setSynthStatus('');
+        setErrorMsg(err?.message || String(err));
+        return;
+      }
+    }
+
+    if (turnsToPlay.length === 0) return;
+
+    setIsSynthesizing(true);
+    setSynthStatus(t.synthesizingDialogue);
+    setErrorMsg(null);
+    setIsMultiStoryActive(true);
+    setIsStoryMode(true);
+    setActiveDialogueTitle(customDialogueTopic);
+    setActiveDialogueCharacters(customCast);
+    setActiveDialogueTurns(turnsToPlay);
+    setActiveTurnIndex(0);
+
+    try {
+      const turnsPayload = turnsToPlay.map((turn) => {
+        const char = customCast.find((c) => c.id === turn.characterId);
+        const persona = VOICE_CATALOG.find((v) => v.id === char?.voicePersonaId);
+        return {
+          turnIndex: turn.turnIndex,
+          characterId: turn.characterId,
+          speakerName: turn.speakerName,
+          voiceId: persona?.prebuiltVoice || char?.fallbackVoice || 'Aoede',
+          fallbackVoice: char?.fallbackVoice || 'Aoede',
+          style: turn.style,
+          text: turn.text,
+        };
+      });
+
+      const resp = await fetch('/api/synthesize-dialogue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json; charset=utf-8' },
+        body: JSON.stringify({
+          modelName,
+          turns: turnsPayload,
+          apiKey: key,
+        }),
+      });
+
+      if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`Synthesize error: ${errText.slice(0, 200)}`);
+      }
+
+      const data = await resp.json();
+      const wavBytes = base64ToUint8Array(data.wavBase64);
+      const wavBlob = new Blob([wavBytes as unknown as BlobPart], { type: 'audio/wav' });
+      const wavUrl = URL.createObjectURL(wavBlob);
+
+      setActiveDialogueTurns(data.turns);
+      setOneTakeWavUrl(wavUrl);
+      setIsSynthesizing(false);
+      setSynthStatus('');
+
+      if (audioRef.current) {
+        audioRef.current.src = wavUrl;
+        audioRef.current.currentTime = 0;
+        audioRef.current.playbackRate = playbackSpeed;
+        audioRef.current.play().catch(() => {});
+      }
+    } catch (err: any) {
+      setIsSynthesizing(false);
+      setSynthStatus('');
+      setErrorMsg(err?.message || String(err));
+    }
+  };
+
+  const handleAddCharacter = () => {
+    if (customCast.length >= 4) return;
+    const availableCategories: VoiceCategory[] = ['female', 'male', 'youth', 'child'];
+    const nextCat = availableCategories[customCast.length % availableCategories.length];
+    const candidateVoices = VOICE_CATALOG.filter((v) => v.category === nextCat);
+    const chosenVoice = candidateVoices[0] || VOICE_CATALOG[0];
+
+    const newChar: StoryCharacter = {
+      id: `char-${Date.now()}`,
+      name: lang === 'ar' ? (chosenVoice.category === 'child' ? 'طفل صغير' : chosenVoice.nameAr) : chosenVoice.nameEn,
+      role: lang === 'ar' ? chosenVoice.recommendedRoleAr.split('،')[0] : chosenVoice.recommendedRoleEn.split(',')[0],
+      category: chosenVoice.category,
+      voicePersonaId: chosenVoice.id,
+      fallbackVoice: chosenVoice.prebuiltVoice,
+      avatarEmoji: chosenVoice.avatarEmoji,
+      color:
+        chosenVoice.category === 'female'
+          ? 'border-rose-400 bg-rose-50 text-rose-800'
+          : chosenVoice.category === 'child'
+            ? 'border-teal-400 bg-teal-50 text-teal-800'
+            : chosenVoice.category === 'youth'
+              ? 'border-violet-400 bg-violet-50 text-violet-800'
+              : 'border-blue-400 bg-blue-50 text-blue-800',
+    };
+    setCustomCast((prev) => [...prev, newChar]);
+  };
+
+  const handleRemoveCharacter = (id: string) => {
+    if (customCast.length <= 2) return;
+    setCustomCast((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  const handleOpenVoicePickerForCharacter = (characterId: string) => {
+    setVoiceTargetCharacterId(characterId);
+    setIsVoiceExplorerOpen(true);
+  };
+
+  const handleSelectVoiceFromExplorer = (persona: VoicePersona) => {
+    if (voiceTargetCharacterId) {
+      setCustomCast((prev) =>
+        prev.map((c) => {
+          if (c.id !== voiceTargetCharacterId) return c;
+          return {
+            ...c,
+            voicePersonaId: persona.id,
+            fallbackVoice: persona.prebuiltVoice,
+            category: persona.category,
+            avatarEmoji: persona.avatarEmoji,
+          };
+        }),
+      );
+      setVoiceTargetCharacterId(null);
+    } else {
+      // Applied to Solo Voice prompt
+      setCustomVoiceInput(lang === 'ar' ? persona.promptAr : persona.promptEn);
+    }
+    setIsVoiceExplorerOpen(false);
+  };
+
+  const handleTogglePlaybackSpeed = () => {
+    const nextSpeed = playbackSpeed === 1.0 ? 1.25 : playbackSpeed === 1.25 ? 0.75 : 1.0;
+    setPlaybackSpeed(nextSpeed);
+    if (audioRef.current) {
+      audioRef.current.playbackRate = nextSpeed;
+    }
+  };
+
+  const jumpToTurn = (idx: number) => {
+    const clamped = Math.max(0, Math.min(activeDialogueTurns.length - 1, idx));
+    setActiveTurnIndex(clamped);
+    if (audioRef.current && oneTakeWavUrl) {
+      audioRef.current.currentTime = activeDialogueTurns[clamped].start + 0.04;
+      if (audioRef.current.paused) {
+        audioRef.current.play();
+      }
+    }
+  };
+
   const handleTimeUpdate = () => {
     if (!audioRef.current) return;
     const t = audioRef.current.currentTime;
     setCurrentTime(t);
     setDuration(audioRef.current.duration || 0);
 
-    const match = beats.find((b) => t >= b.start && t < b.end);
-    if (match && match.index !== activeBeatIndex) {
-      setActiveBeatIndex(match.index);
+    if (isMultiStoryActive && activeDialogueTurns.length > 0) {
+      const match = activeDialogueTurns.find((turn) => t >= turn.start && t < turn.end);
+      if (match && match.turnIndex !== activeTurnIndex) {
+        setActiveTurnIndex(match.turnIndex);
+      }
+    } else {
+      const match = beats.find((b) => t >= b.start && t < b.end);
+      if (match && match.index !== activeBeatIndex) {
+        setActiveBeatIndex(match.index);
+      }
     }
   };
 
@@ -1698,10 +2164,17 @@ export default function App() {
     }
   };
 
-  const plainTextTurnByTurn = beats
-    .map((b, i) => `${i + 1}. Style: ${b.style}\n${b.text}`)
-    .join('\n\n');
-  const plainTextContinuous = beats.map((b) => b.text).join(' ');
+  const plainTextTurnByTurn = isMultiStoryActive
+    ? activeDialogueTurns
+        .map((t, i) => `${i + 1}. [${t.speakerName}] (${t.style}):\n${t.text}`)
+        .join('\n\n')
+    : beats
+        .map((b, i) => `${i + 1}. Style: ${b.style}\n${b.text}`)
+        .join('\n\n');
+
+  const plainTextContinuous = isMultiStoryActive
+    ? activeDialogueTurns.map((t) => `${t.speakerName}: ${t.text}`).join('\n')
+    : beats.map((b) => b.text).join(' ');
 
   const handleCopy = (key: string, text: string) => {
     navigator.clipboard.writeText(text);
@@ -1727,56 +2200,114 @@ export default function App() {
       {/* Main Exhibition Card */}
       <div id="monologue-card" className="w-full max-w-[1280px] mx-auto bg-white rounded-[16px] sm:rounded-[22px] border border-[#E6E4DF] shadow-[0_2px_24px_rgba(20,20,19,0.03)] px-3.5 sm:px-8 md:px-16 py-4 sm:py-8 md:py-10 min-h-[520px] sm:min-h-[760px] flex flex-col justify-between overflow-hidden">
         {/* ====================================================================
-            TOP BAR: Brand + Back Left | Script & Tags + Settings + Language Right
+            TOP BAR: Brand + Mode Switcher + Voice Catalog + Language + Settings
            ==================================================================== */}
-        <div className="flex items-start justify-between gap-2.5 sm:gap-4 w-full">
-          <div className="shrink-0">
-            <span className="text-[20px] sm:text-[26px] font-bold tracking-[-0.025em] text-[#141413] block leading-tight">
-              {t.brand}
-            </span>
-
-            {!isStoryMode && (
-              <span className="text-[11px] sm:text-[13px] text-[#8E8D8A] font-normal leading-snug block mt-0.5 max-w-[150px] sm:max-w-none">
-                {t.tagline}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4 w-full pb-3 border-b border-[#F0EEE8]">
+          <div className="flex items-center gap-3 shrink-0">
+            <div>
+              <span className="text-[20px] sm:text-[24px] font-bold tracking-[-0.025em] text-[#141413] block leading-tight">
+                {t.brand}
               </span>
-            )}
+              {!isStoryMode && (
+                <span className="text-[11px] sm:text-[12px] text-[#8E8D8A] font-normal leading-snug block">
+                  {appMode === 'multi' ? t.multiCharacter : t.tagline}
+                </span>
+              )}
+            </div>
 
             {isStoryMode && (
-              <div className="flex items-center gap-1.5 sm:gap-2 pt-1 sm:pt-0">
-                <span className="hidden sm:inline text-[#DCDAD4] select-none">|</span>
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="text-[#DCDAD4] select-none">|</span>
                 <button
                   onClick={handleBackToStart}
-                  className="inline-flex items-center gap-1 text-[11.5px] sm:text-[13px] text-[#8E8D8A] hover:text-[#141413] transition-colors cursor-pointer"
+                  className="inline-flex items-center gap-1 text-[12px] sm:text-[13px] text-[#8E8D8A] hover:text-[#141413] transition-colors cursor-pointer"
                 >
                   <ArrowLeft className={`w-3.5 h-3.5 ${lang === 'ar' ? 'rotate-180' : ''}`} />
                   <span>{t.back}</span>
                 </button>
 
-                <span className="inline-flex items-center px-2 py-0.5 sm:px-3 sm:py-1 rounded-[6px] border border-[#D4D2CC] bg-white text-[10px] sm:text-[11px] font-semibold tracking-[0.06em] uppercase text-[#141413]">
-                  {t.beatCounter} {String(activeBeatIndex + 1).padStart(2, '0')}/{beats.length}
+                <span className="inline-flex items-center px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-[6px] border border-[#D4D2CC] bg-[#FAF9F6] text-[10.5px] sm:text-[11px] font-semibold tracking-[0.06em] uppercase text-[#141413]">
+                  {isMultiStoryActive ? (
+                    <>
+                      {t.turnCounter} {String(activeTurnIndex + 1).padStart(2, '0')}/{activeDialogueTurns.length}
+                    </>
+                  ) : (
+                    <>
+                      {t.beatCounter} {String(activeBeatIndex + 1).padStart(2, '0')}/{beats.length}
+                    </>
+                  )}
                 </span>
               </div>
             )}
           </div>
 
-          {/* Top-Right Script & Tags, WAV Download (when active), Settings & Language Buttons */}
-          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 pt-0.5">
+          {/* Center Mode Switcher (When not in playback reader mode) */}
+          {!isStoryMode && (
+            <div className="inline-flex p-1 rounded-[10px] bg-[#F2F1EC] border border-[#E4E2DC] self-center sm:self-auto shadow-2xs">
+              <button
+                onClick={() => {
+                  setAppMode('solo');
+                  setErrorMsg(null);
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[7px] text-[12px] font-semibold transition-all cursor-pointer ${
+                  appMode === 'solo'
+                    ? 'bg-white text-[#141413] shadow-xs'
+                    : 'text-[#6E6D69] hover:text-[#141413]'
+                }`}
+              >
+                <Mic className="w-3.5 h-3.5" />
+                <span>{lang === 'ar' ? 'مونولوج فردي' : 'Solo Monologue'}</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setAppMode('multi');
+                  setErrorMsg(null);
+                }}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[7px] text-[12px] font-semibold transition-all cursor-pointer ${
+                  appMode === 'multi'
+                    ? 'bg-white text-[#141413] shadow-xs'
+                    : 'text-[#6E6D69] hover:text-[#141413]'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5" />
+                <span>{lang === 'ar' ? 'قصة متعددة الشخصيات' : 'Multi-Character'}</span>
+              </button>
+            </div>
+          )}
+
+          {/* Top-Right Action Buttons: Voice Catalog, WAV Download, Script, Settings & Language */}
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 self-end sm:self-auto">
+            {/* Voice Catalog Explorer Button */}
+            <button
+              onClick={() => {
+                setVoiceTargetCharacterId(null);
+                setIsVoiceExplorerOpen(true);
+              }}
+              className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-[7px] border border-[#E2E0D8] hover:border-[#141413] text-[12px] text-[#454440] hover:text-[#141413] transition-colors cursor-pointer bg-white shrink-0 shadow-2xs"
+              title={t.voiceExplorer}
+              aria-label={t.voiceExplorer}
+            >
+              <Compass className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="hidden sm:inline font-medium">{t.voiceExplorer}</span>
+            </button>
+
             {isStoryMode && oneTakeWavUrl && (
               <a
                 href={oneTakeWavUrl}
-                download={`${storyTitle.toLowerCase().replace(/\s+/g, '-')}.wav`}
-                className="inline-flex items-center justify-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-[7px] border border-[#E2E0D8] hover:border-[#141413] text-[12px] text-[#454440] hover:text-[#141413] transition-colors bg-white shrink-0"
+                download={`${(isMultiStoryActive ? activeDialogueTitle : storyTitle).toLowerCase().replace(/\s+/g, '-')}.wav`}
+                className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-[7px] border border-[#E2E0D8] hover:border-[#141413] text-[12px] text-[#454440] hover:text-[#141413] transition-colors bg-white shrink-0 shadow-2xs"
                 title={t.downloadWav}
                 aria-label={t.downloadWav}
               >
-                <Download className="w-4 h-4 sm:w-3.5 sm:h-3.5" />
-                <span className="hidden sm:inline">{t.downloadWav}</span>
+                <Download className="w-3.5 h-3.5 text-emerald-600" />
+                <span className="hidden sm:inline font-medium">{t.downloadWav}</span>
               </a>
             )}
 
             <button
               onClick={() => setActiveDrawer('script')}
-              className="inline-flex items-center justify-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-[7px] border border-[#E2E0D8] hover:border-[#141413] text-[12px] text-[#454440] hover:text-[#141413] transition-colors cursor-pointer shrink-0 bg-white"
+              className="inline-flex items-center justify-center gap-1.5 p-2 sm:px-2.5 sm:py-1.5 rounded-[7px] border border-[#E2E0D8] hover:border-[#141413] text-[12px] text-[#454440] hover:text-[#141413] transition-colors cursor-pointer shrink-0 bg-white"
               title={t.scriptAndTags}
               aria-label={t.scriptAndTags}
             >
@@ -1786,7 +2317,7 @@ export default function App() {
 
             <button
               onClick={() => setActiveDrawer('settings')}
-              className="inline-flex items-center justify-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-[7px] border border-[#E2E0D8] hover:border-[#141413] text-[12px] text-[#454440] hover:text-[#141413] transition-colors cursor-pointer shrink-0 bg-white"
+              className="inline-flex items-center justify-center gap-1.5 p-2 sm:px-2.5 sm:py-1.5 rounded-[7px] border border-[#E2E0D8] hover:border-[#141413] text-[12px] text-[#454440] hover:text-[#141413] transition-colors cursor-pointer shrink-0 bg-white"
               title={t.settings}
               aria-label={t.settings}
             >
@@ -1797,11 +2328,11 @@ export default function App() {
             {/* Language Selection Button (Placed directly next to Settings) */}
             <button
               onClick={handleToggleLanguage}
-              className="inline-flex items-center justify-center gap-1.5 p-2 sm:px-3 sm:py-1.5 rounded-[7px] border border-[#E2E0D8] hover:border-[#141413] text-[12px] text-[#454440] hover:text-[#141413] transition-colors cursor-pointer shrink-0 bg-white shadow-2xs"
+              className="inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-[7px] border border-[#E2E0D8] hover:border-[#141413] text-[12px] text-[#454440] hover:text-[#141413] transition-colors cursor-pointer shrink-0 bg-white shadow-2xs"
               title={t.switchLanguage}
               aria-label={t.switchLanguage}
             >
-              <Globe className="w-4 h-4 sm:w-3.5 sm:h-3.5 text-[#141413]" />
+              <Globe className="w-3.5 h-3.5 text-[#141413]" />
               <span className="font-semibold text-[11.5px] sm:text-[12px]">
                 {lang === 'en' ? 'العربية' : 'English'}
               </span>
@@ -1841,47 +2372,121 @@ export default function App() {
                     scrollbarWidth: 'none',
                   }}
                 >
-                  {/* Top spacer so Beat 01 centers vertically */}
-                  <div className="h-[165px]" />
+                  {/* Top spacer so first element centers vertically */}
+                  <div className="h-[140px]" />
 
-                  <div className="space-y-10">
-                    {beats.map((b, idx) => {
-                      const distance = Math.abs(idx - activeBeatIndex);
-                      const isCurrent = idx === activeBeatIndex;
+                  {isMultiStoryActive ? (
+                    /* Multi-Character Dialogue Teleprompter */
+                    <div className="space-y-6 sm:space-y-8">
+                      {activeDialogueTurns.map((turn, idx) => {
+                        const isCurrent = idx === activeTurnIndex;
+                        const char = activeDialogueCharacters.find((c) => c.id === turn.characterId);
+                        const persona = VOICE_CATALOG.find((v) => v.id === char?.voicePersonaId);
+                        const distance = Math.abs(idx - activeTurnIndex);
 
-                      let opacityClass = 'opacity-10';
-                      if (isCurrent) {
-                        opacityClass = 'opacity-100';
-                      } else if (distance === 1) {
-                        opacityClass = 'opacity-25 hover:opacity-45';
-                      } else if (distance === 2) {
-                        opacityClass = 'opacity-10 hover:opacity-25';
-                      }
+                        let opacityClass = 'opacity-25';
+                        if (isCurrent) {
+                          opacityClass = 'opacity-100 ring-2 ring-[#141413]/25 shadow-lg scale-[1.01]';
+                        } else if (distance === 1) {
+                          opacityClass = 'opacity-50 hover:opacity-80';
+                        } else {
+                          opacityClass = 'opacity-25 hover:opacity-50';
+                        }
 
-                      return (
-                        <div
-                          key={b.index}
-                          ref={(el) => {
-                            beatRefs.current[idx] = el;
-                          }}
-                          onClick={() => jumpToBeat(idx)}
-                          className={`py-1.5 transition-all duration-500 ease-out cursor-pointer text-start ${opacityClass}`}
-                        >
-                          {/* Style Prompt: Smaller bold font directly above the spoken line */}
-                          <div className="text-[12.5px] sm:text-[13.5px] font-bold text-[#3D3C38] tracking-[-0.005em] mb-2">
-                            {b.style}
+                        return (
+                          <div
+                            key={turn.turnIndex}
+                            ref={(el) => {
+                              turnRefs.current[idx] = el;
+                            }}
+                            onClick={() => jumpToTurn(idx)}
+                            className={`p-4 sm:p-6 rounded-[16px] bg-white border border-[#E5E3DC] transition-all duration-300 cursor-pointer text-start ${opacityClass}`}
+                          >
+                            {/* Header: Speaker Avatar, Name, Voice Badge, and Timestamp */}
+                            <div className="flex items-center justify-between gap-3 mb-2.5">
+                              <div className="flex items-center gap-2.5">
+                                <span className="w-8 h-8 sm:w-9 sm:h-9 rounded-full flex items-center justify-center text-[16px] sm:text-[18px] bg-[#F4F3EE] border border-[#E0DED7] shrink-0">
+                                  {char?.avatarEmoji || '🎭'}
+                                </span>
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="text-[14px] sm:text-[16px] font-bold text-[#141413] leading-tight">
+                                      {turn.speakerName}
+                                    </span>
+                                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-[#F4F3EE] text-[#55534E] border border-[#E4E2DC]">
+                                      {persona ? (lang === 'ar' ? persona.nameAr : persona.nameEn) : char?.fallbackVoice}
+                                    </span>
+                                  </div>
+                                  <span className="text-[11px] text-[#888681] font-medium block mt-0.5">
+                                    {persona ? (lang === 'ar' ? persona.tagAr : persona.tagEn) : ''}
+                                  </span>
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="text-[10.5px] font-mono-code px-2 py-0.5 rounded bg-[#FAF9F6] text-[#787672] border border-[#E5E3DC]">
+                                  {turn.start.toFixed(1)}s - {turn.end.toFixed(1)}s
+                                </span>
+                                {isCurrent && isPlaying && (
+                                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" />
+                                )}
+                              </div>
+                            </div>
+
+                            {/* Directorial Style Prompt */}
+                            <div className="text-[12px] sm:text-[13px] font-semibold text-[#52514D] mb-2 italic">
+                              « {turn.style} »
+                            </div>
+
+                            {/* Dialogue Spoken Line */}
+                            <div className="text-[20px] sm:text-[26px] font-normal leading-[1.48] text-[#141413]">
+                              {renderStoryLineWithTags(turn.text)}
+                            </div>
                           </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    /* Solo Monologue Acting Beats Teleprompter */
+                    <div className="space-y-10">
+                      {beats.map((b, idx) => {
+                        const distance = Math.abs(idx - activeBeatIndex);
+                        const isCurrent = idx === activeBeatIndex;
 
-                          {/* Spoken Line (including lighter grey <tags> and /IPA/) */}
-                          <div className="text-[24px] sm:text-[30px] font-normal leading-[1.46] tracking-[-0.015em] text-[#141413]">
-                            {renderStoryLineWithTags(b.text)}
+                        let opacityClass = 'opacity-10';
+                        if (isCurrent) {
+                          opacityClass = 'opacity-100';
+                        } else if (distance === 1) {
+                          opacityClass = 'opacity-25 hover:opacity-45';
+                        } else if (distance === 2) {
+                          opacityClass = 'opacity-10 hover:opacity-25';
+                        }
+
+                        return (
+                          <div
+                            key={b.index}
+                            ref={(el) => {
+                              beatRefs.current[idx] = el;
+                            }}
+                            onClick={() => jumpToBeat(idx)}
+                            className={`py-1.5 transition-all duration-500 ease-out cursor-pointer text-start ${opacityClass}`}
+                          >
+                            {/* Style Prompt: Smaller bold font directly above spoken line */}
+                            <div className="text-[12.5px] sm:text-[13.5px] font-bold text-[#3D3C38] tracking-[-0.005em] mb-2">
+                              {b.style}
+                            </div>
+
+                            {/* Spoken Line */}
+                            <div className="text-[24px] sm:text-[30px] font-normal leading-[1.46] tracking-[-0.015em] text-[#141413]">
+                              {renderStoryLineWithTags(b.text)}
+                            </div>
                           </div>
-                        </div>
-                      );
-                    })}
-                  </div>
+                        );
+                      })}
+                    </div>
+                  )}
 
-                  {/* Bottom spacer so Beat 16 centers vertically */}
+                  {/* Bottom spacer so last element centers vertically */}
                   <div className="h-[175px]" />
                 </div>
               )}
@@ -1896,8 +2501,14 @@ export default function App() {
               <div className="pt-6 mt-2 border-t border-[#EFECE6] flex items-center justify-between gap-4">
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => jumpToBeat(activeBeatIndex - 1)}
-                    disabled={activeBeatIndex === 0}
+                    onClick={() => {
+                      if (isMultiStoryActive) {
+                        jumpToTurn(activeTurnIndex - 1);
+                      } else {
+                        jumpToBeat(activeBeatIndex - 1);
+                      }
+                    }}
+                    disabled={isMultiStoryActive ? activeTurnIndex === 0 : activeBeatIndex === 0}
                     className="p-1.5 rounded border border-[#E2E0D8] hover:border-[#141413] disabled:opacity-30 transition-colors cursor-pointer"
                     title={t.prevBeat}
                   >
@@ -1907,7 +2518,9 @@ export default function App() {
                   <button
                     onClick={() => {
                       if (!oneTakeWavUrl) {
-                        if (storySourceMode === 'custom') {
+                        if (isMultiStoryActive) {
+                          handleStartMultiPresetStory(selectedMultiPresetId);
+                        } else if (storySourceMode === 'custom') {
                           handleGenerateAndPlayCustomStory();
                         } else {
                           handleStartPresetStory();
@@ -1922,7 +2535,7 @@ export default function App() {
                       }
                     }}
                     disabled={isSynthesizing}
-                    className="inline-flex items-center gap-2 px-4 py-1.5 rounded-[7px] bg-[#141413] hover:bg-[#2A2A28] text-white text-[12.5px] font-medium transition-colors cursor-pointer"
+                    className="inline-flex items-center gap-2 px-4 py-1.5 rounded-[7px] bg-[#141413] hover:bg-[#2A2A28] text-white text-[12.5px] font-medium transition-colors cursor-pointer shadow-xs"
                   >
                     {isPlaying ? (
                       <>
@@ -1938,110 +2551,112 @@ export default function App() {
                   </button>
 
                   <button
-                    onClick={() => jumpToBeat(activeBeatIndex + 1)}
-                    disabled={activeBeatIndex === beats.length - 1}
+                    onClick={() => {
+                      if (isMultiStoryActive) {
+                        jumpToTurn(activeTurnIndex + 1);
+                      } else {
+                        jumpToBeat(activeBeatIndex + 1);
+                      }
+                    }}
+                    disabled={
+                      isMultiStoryActive
+                        ? activeTurnIndex === activeDialogueTurns.length - 1
+                        : activeBeatIndex === beats.length - 1
+                    }
                     className="p-1.5 rounded border border-[#E2E0D8] hover:border-[#141413] disabled:opacity-30 transition-colors cursor-pointer"
                     title={t.nextBeat}
                   >
                     <ArrowRight className={`w-3.5 h-3.5 ${lang === 'ar' ? 'rotate-180' : ''}`} />
                   </button>
+
+                  {/* Playback Speed Button */}
+                  <button
+                    onClick={handleTogglePlaybackSpeed}
+                    className="px-2 py-1 rounded border border-[#E2E0D8] hover:border-[#141413] text-[11px] font-mono-code text-[#4D4B47] transition-colors cursor-pointer bg-white shrink-0 ml-1"
+                    title={t.playbackSpeed}
+                  >
+                    {playbackSpeed}x
+                  </button>
                 </div>
 
-                {/* 16 Minimal Story Chapter Dots */}
+                {/* Chapter or Turn Dots */}
                 <div className="flex items-center gap-1.5 flex-wrap">
-                  {beats.map((b, i) => (
-                    <button
-                      key={b.index}
-                      onClick={() => jumpToBeat(i)}
-                      title={`${b.beat}: ${b.style}`}
-                      className={`h-2 rounded-full transition-all cursor-pointer ${
-                        i === activeBeatIndex
-                          ? 'w-6 bg-[#141413]'
-                          : 'w-2 bg-[#DCDAD4] hover:bg-[#8E8D8A]'
-                      }`}
-                    />
-                  ))}
+                  {isMultiStoryActive ? (
+                    activeDialogueTurns.map((turn, i) => (
+                      <button
+                        key={turn.turnIndex}
+                        onClick={() => jumpToTurn(i)}
+                        title={`${turn.speakerName}: ${turn.style}`}
+                        className={`h-2 rounded-full transition-all cursor-pointer ${
+                          i === activeTurnIndex
+                            ? 'w-6 bg-[#141413]'
+                            : 'w-2 bg-[#DCDAD4] hover:bg-[#8E8D8A]'
+                        }`}
+                      />
+                    ))
+                  ) : (
+                    beats.map((b, i) => (
+                      <button
+                        key={b.index}
+                        onClick={() => jumpToBeat(i)}
+                        title={`${b.beat}: ${b.style}`}
+                        className={`h-2 rounded-full transition-all cursor-pointer ${
+                          i === activeBeatIndex
+                            ? 'w-6 bg-[#141413]'
+                            : 'w-2 bg-[#DCDAD4] hover:bg-[#8E8D8A]'
+                        }`}
+                      />
+                    ))
+                  )}
                 </div>
               </div>
             </div>
           </div>
         ) : (
           /* ==================================================================
-             START PAGE: Choose "Precinct 69 Transcripts" OR "Create Your Own"
+             START PAGE: Multi-Character Studio OR Solo Monologue Reel
              ================================================================== */
-          <div className="flex flex-col sm:flex-row items-center sm:items-center gap-4 sm:gap-6 md:gap-10 lg:gap-12 my-auto py-2 sm:py-4 w-full">
-            {/* Left Column: Monograph Drawing */}
-            <div className="w-[130px] sm:w-[210px] md:w-[260px] lg:w-[310px] shrink-0 flex flex-col items-center justify-center">
-              <div
-                onClick={
-                  storySourceMode === 'preset'
-                    ? handleStartPresetStory
-                    : handleGenerateAndPlayCustomStory
-                }
-                className="relative group w-full cursor-pointer"
-                title="Click to start the story"
-              >
-                <img
-                  src="/drawing.jpg"
-                  alt="Precinct 69 Transcripts — Det. M. Giancana Monograph Drawing"
-                  className="w-full h-auto rounded-[2px] transition-transform duration-300 group-hover:scale-[1.015]"
-                />
-              </div>
-            </div>
-
-            {/* Right Column: Minimalist Mode Switcher + Story Overview / Custom Creator */}
-            <div
-              className={`min-w-0 w-full flex-1 ${
-                storySourceMode === 'custom'
-                  ? 'space-y-2 sm:space-y-3 md:space-y-3.5'
-                  : 'space-y-2.5 sm:space-y-3.5 md:space-y-4'
-              }`}
-            >
-              {/* Minimalist 2-Option Story Selector */}
-              <div className="border-l border-r border-[#DCDAD4] px-2.5 sm:px-6 md:px-9 py-1">
-                <div className="inline-flex p-0.5 sm:p-1 rounded-[7px] sm:rounded-[9px] bg-[#F4F3EF] border border-[#E5E3DC] mb-2 sm:mb-3 flex-wrap">
+          appMode === 'multi' ? (
+            /* Multi-Character Studio View */
+            <div className="w-full flex-1 flex flex-col justify-between py-2 sm:py-4">
+              {/* Sub-Mode Tabs */}
+              <div className="flex items-center justify-between border-b border-[#EBE8E1] pb-3 mb-4 gap-3 flex-wrap">
+                <div className="inline-flex p-0.5 sm:p-1 rounded-[8px] bg-[#F2F1EB] border border-[#E4E2DC]">
                   <button
-                    onClick={() => handleSelectMode('preset')}
-                    className={`px-2 sm:px-4 py-1 sm:py-1.5 rounded-[5px] sm:rounded-[6px] text-[10.5px] sm:text-[12.5px] font-medium transition-all cursor-pointer ${
-                      storySourceMode === 'preset'
+                    onClick={() => {
+                      setMultiSubMode('preset');
+                      setErrorMsg(null);
+                    }}
+                    className={`px-3 sm:px-4 py-1 sm:py-1.5 rounded-[6px] text-[11.5px] sm:text-[12.5px] font-semibold transition-all cursor-pointer ${
+                      multiSubMode === 'preset'
                         ? 'bg-white text-[#141413] shadow-xs'
                         : 'text-[#6E6D69] hover:text-[#141413]'
                     }`}
                   >
-                    {t.featuredStory}
+                    {t.readyPresets}
                   </button>
                   <button
-                    onClick={() => handleSelectMode('custom')}
-                    className={`px-2 sm:px-4 py-1 sm:py-1.5 rounded-[5px] sm:rounded-[6px] text-[10.5px] sm:text-[12.5px] font-medium transition-all cursor-pointer ${
-                      storySourceMode === 'custom'
+                    onClick={() => {
+                      setMultiSubMode('custom');
+                      setErrorMsg(null);
+                    }}
+                    className={`px-3 sm:px-4 py-1 sm:py-1.5 rounded-[6px] text-[11.5px] sm:text-[12.5px] font-semibold transition-all cursor-pointer ${
+                      multiSubMode === 'custom'
                         ? 'bg-white text-[#141413] shadow-xs'
                         : 'text-[#6E6D69] hover:text-[#141413]'
                     }`}
                   >
-                    {t.createYourOwn}
+                    {t.customScriptStudio}
                   </button>
                 </div>
 
-                {storySourceMode === 'preset' ? (
-                  <div>
-                    <h1 className="text-[18px] sm:text-[23px] md:text-[26px] font-semibold tracking-[-0.025em] text-[#141413] leading-tight pt-2 sm:pt-[12px] px-0">
-                      {storyTitle}
-                    </h1>
-                  </div>
-                ) : (
-                  <div>
-                    <h1 className="text-[17px] sm:text-[24px] md:text-[28px] font-semibold tracking-[-0.025em] text-[#141413] leading-tight">
-                      {t.createStoryTitle}
-                    </h1>
-                    <p className="text-[11.5px] sm:text-[13px] text-[#8E8D8A] mt-0.5">
-                      {t.createStorySubtitle}
-                    </p>
-                  </div>
-                )}
+                <div className="text-[12px] text-[#787672]">
+                  {multiSubMode === 'preset' ? t.presetStoriesDesc : t.customScriptStudioDesc}
+                </div>
               </div>
 
               {errorMsg && (
-                <div className="mx-2.5 sm:mx-6 md:mx-9 text-[12px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-[8px] px-3.5 py-2.5 flex items-start gap-2.5">
+                <div className="mb-4 text-[12px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-[8px] px-3.5 py-2.5 flex items-start gap-2.5">
                   <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#DC2626]" />
                   <div className="flex-1">
                     <span className="font-semibold block text-[12.5px]">{t.noticeTitle}</span>
@@ -2057,154 +2672,531 @@ export default function App() {
                 </div>
               )}
 
-              {storySourceMode === 'preset' ? (
-                /* ============================================================
-                   OPTION 1: Featured Story (Original Story)
-                   ============================================================ */
-                <>
-                  {/* 1. Synopsis (Swapped to top) */}
-                  <div className="border-l border-r border-[#DCDAD4] px-2.5 sm:px-6 md:px-9 py-1">
-                    <p className="text-[13px] sm:text-[14px] md:text-[14.5px] leading-[1.6] sm:leading-[1.65] text-[#222220]">
-                      {lang === 'ar' ? AR_PRECINCT_69_SYNOPSIS : PRECINCT_69_SYNOPSIS}
-                    </p>
-                  </div>
+              {/* Sub-Mode 1: Preset Stories Grid */}
+              {multiSubMode === 'preset' ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6 my-auto">
+                  {MULTI_CHARACTER_PRESETS.map((preset) => {
+                    const title = lang === 'ar' ? preset.titleAr : preset.titleEn;
+                    const synopsis = lang === 'ar' ? preset.synopsisAr : preset.synopsisEn;
+                    const turns = lang === 'ar' ? preset.turnsAr : preset.turnsEn;
+                    const isSelected = selectedMultiPresetId === preset.id;
 
-                  {/* 2. Voice Prompt + Play Button (Swapped to bottom) */}
-                  <div className="border-l border-r border-[#DCDAD4] px-2.5 sm:px-6 md:px-9 py-1">
-                    <div className="text-[10.5px] sm:text-[12px] text-[#8E8D8A]">{t.voicePromptLabel}</div>
-                    <div className="text-[14.5px] font-normal italic text-[#535252] mt-0.5 sm:mt-1 leading-[1.55] sm:leading-[1.65]">
-                      {voicePrompt}
-                    </div>
-
-                    <div className="flex items-center gap-3 flex-wrap mt-3 sm:mt-5">
-                      <button
-                        onClick={handleStartPresetStory}
-                        disabled={isSynthesizing}
-                        className="inline-flex items-center gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-[7px] bg-[#141413] hover:bg-[#2A2A28] text-white text-[11.5px] sm:text-[13.5px] font-medium transition-colors cursor-pointer"
+                    return (
+                      <div
+                        key={preset.id}
+                        className={`p-5 sm:p-6 rounded-[16px] border transition-all flex flex-col justify-between gap-4 bg-white ${
+                          isSelected
+                            ? 'border-[#141413] shadow-md ring-1 ring-[#141413]'
+                            : 'border-[#E6E4DF] hover:border-[#8E8D8A]'
+                        }`}
                       >
-                        <Play className={`w-3.5 sm:w-4 h-3.5 sm:h-4 ${lang === 'ar' ? 'rotate-180' : ''}`} />
-                        <span>
-                          {presetWavCache.url ? t.playStory : t.generateAndPlay}
-                        </span>
-                      </button>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                /* ============================================================
-                   OPTION 2: Create Your Own Story (Minimalist Builder)
-                   ============================================================ */
-                <>
-                  {/* 1. Voice Picker / Description + AI Enhance */}
-                  <div className="border-l border-r border-[#DCDAD4] px-2.5 sm:px-6 md:px-9 py-0.5 space-y-1.5 sm:space-y-2">
-                    <label className="block text-[10.5px] sm:text-[12.5px] text-[#8E8D8A]">
-                      {t.step1Voice}
-                    </label>
-                    <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap">
-                      {currentArchetypes.map((arch) => (
+                        <div>
+                          <div className="flex items-center justify-between gap-2 mb-2">
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded uppercase tracking-wider bg-[#F4F3EE] text-[#5E5D59] border border-[#E5E3DC]">
+                              {turns.length} {t.turnsCount}
+                            </span>
+                            <span className="text-[11.5px] font-medium text-[#787672]">
+                              {preset.characters.length} {lang === 'ar' ? 'شخصيات وأصوات' : 'distinct voices'}
+                            </span>
+                          </div>
+
+                          <h3 className="text-[17px] sm:text-[19px] font-bold text-[#141413] mb-2 leading-snug">
+                            {title}
+                          </h3>
+
+                          <p className="text-[12.5px] sm:text-[13px] text-[#55534F] leading-relaxed mb-4">
+                            {synopsis}
+                          </p>
+
+                          {/* Characters Preview Pills */}
+                          <div className="space-y-1.5 pt-2 border-t border-[#F0EEE8]">
+                            <div className="text-[10.5px] font-semibold text-[#8E8D8A] uppercase tracking-wider">
+                              {lang === 'ar' ? 'الشخصيات والأصوات:' : 'Characters:'}
+                            </div>
+                            <div className="flex flex-wrap gap-1.5">
+                              {preset.characters.map((char) => {
+                                const persona = VOICE_CATALOG.find((v) => v.id === char.voicePersonaId);
+                                return (
+                                  <span
+                                    key={char.id}
+                                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-[6px] text-[11px] font-medium border ${char.color}`}
+                                  >
+                                    <span>{char.avatarEmoji}</span>
+                                    <span className="font-semibold">{char.name}</span>
+                                    <span className="opacity-75 text-[10px]">
+                                      ({persona ? (lang === 'ar' ? persona.nameAr : persona.nameEn) : char.fallbackVoice})
+                                    </span>
+                                  </span>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </div>
+
                         <button
-                          key={arch.id}
-                          type="button"
                           onClick={() => {
-                            setSelectedArchetypeId(arch.id);
-                            setCustomVoiceInput(arch.prompt);
+                            setSelectedMultiPresetId(preset.id);
+                            handleStartMultiPresetStory(preset.id);
                           }}
-                          className={`px-2 sm:px-2.5 py-0.5 rounded text-[10px] sm:text-[11px] font-medium border transition-colors cursor-pointer ${
-                            selectedArchetypeId === arch.id
-                              ? 'bg-[#141413] text-white border-[#141413]'
-                              : 'bg-[#FAF9F6] text-[#575652] border-[#E2E0D8] hover:border-[#141413]'
-                          }`}
+                          disabled={isSynthesizing}
+                          className="w-full inline-flex items-center justify-center gap-2 py-2.5 px-4 rounded-[8px] bg-[#141413] hover:bg-[#2A2A28] disabled:opacity-50 text-white text-[12.5px] font-semibold transition-all cursor-pointer shadow-xs"
                         >
-                          {arch.label}
+                          {isSynthesizing && selectedMultiPresetId === preset.id ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>{synthStatus || t.synthesizingDialogue}</span>
+                            </>
+                          ) : (
+                            <>
+                              <Play className={`w-3.5 h-3.5 ${lang === 'ar' ? 'rotate-180' : ''}`} />
+                              <span>{lang === 'ar' ? 'استماع للقصة' : 'Play Story'}</span>
+                            </>
+                          )}
                         </button>
-                      ))}
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                /* Sub-Mode 2: AI Multi-Character Script Studio */
+                <div className="space-y-4 sm:space-y-5 my-auto max-w-4xl mx-auto w-full">
+                  {/* 1. Cast of Characters */}
+                  <div className="p-4 sm:p-5 rounded-[14px] bg-[#FAF9F6] border border-[#E5E3DC]">
+                    <div className="flex items-center justify-between mb-3">
+                      <div>
+                        <h4 className="text-[14px] sm:text-[15px] font-bold text-[#141413]">
+                          {t.castTitle}
+                        </h4>
+                        <p className="text-[11.5px] text-[#787672]">
+                          {t.castSubtitle}
+                        </p>
+                      </div>
+
+                      {customCast.length < 4 && (
+                        <button
+                          type="button"
+                          onClick={handleAddCharacter}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[7px] border border-[#D4D2CC] hover:border-[#141413] bg-white text-[11.5px] font-semibold text-[#141413] transition-colors cursor-pointer shadow-2xs"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{t.addCharacter}</span>
+                        </button>
+                      )}
                     </div>
 
-                    <div className="relative">
-                      <textarea
-                        rows={2}
-                        value={customVoiceInput}
-                        onChange={(e) => {
-                          setSelectedArchetypeId('custom');
-                          setCustomVoiceInput(e.target.value);
-                        }}
-                        placeholder={t.voicePlaceholder}
-                        className={`w-full py-1.5 sm:py-2 rounded-[8px] border border-[#D4D2CC] focus:border-[#141413] focus:outline-none text-[11.5px] sm:text-[13.5px] leading-relaxed text-[#141413] bg-[#FAF9F6] resize-none ${
-                          lang === 'ar' ? 'pl-20 sm:pl-28 pr-2.5 sm:pr-3.5' : 'pr-20 sm:pr-28 pl-2.5 sm:pr-3.5'
-                        }`}
-                      />
-                      <button
-                        type="button"
-                        onClick={handleEnhanceVoice}
-                        disabled={isEnhancingVoice || !customVoiceInput.trim()}
-                        className={`absolute bottom-2 inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-[6px] bg-white border border-[#D4D2CC] hover:border-[#141413] text-[10px] sm:text-[11.5px] font-medium text-[#141413] shadow-2xs disabled:opacity-50 transition-colors cursor-pointer ${
-                          lang === 'ar' ? 'left-2' : 'right-2'
-                        }`}
-                        title={t.enhanceTitle}
-                      >
-                        {isEnhancingVoice ? (
-                          <Loader2 className="w-3 h-3 animate-spin" />
-                        ) : (
-                          <Sparkles className="w-3 h-3" />
-                        )}
-                        <span>{isEnhancingVoice ? t.enhancingVoice : t.enhanceVoice}</span>
-                      </button>
+                    {/* Character Slots Grid */}
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                      {customCast.map((char) => {
+                        const persona = VOICE_CATALOG.find((v) => v.id === char.voicePersonaId);
+                        return (
+                          <div
+                            key={char.id}
+                            className="p-3.5 rounded-[10px] bg-white border border-[#E0DED7] flex flex-col justify-between gap-2.5 shadow-2xs"
+                          >
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="w-7 h-7 rounded-full flex items-center justify-center text-[15px] bg-[#F4F3EE] border border-[#E2E0D8]">
+                                  {char.avatarEmoji}
+                                </span>
+                                <input
+                                  type="text"
+                                  value={char.name}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    setCustomCast((prev) =>
+                                      prev.map((c) => (c.id === char.id ? { ...c, name: val } : c)),
+                                    );
+                                  }}
+                                  className="text-[13px] font-bold text-[#141413] border-b border-transparent hover:border-[#D4D2CC] focus:border-[#141413] focus:outline-none bg-transparent w-28"
+                                  placeholder={t.characterName}
+                                />
+                              </div>
+
+                              {customCast.length > 2 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveCharacter(char.id)}
+                                  className="p-1 text-[#8E8D8A] hover:text-[#DC2626] transition-colors cursor-pointer"
+                                  title={t.removeCharacter}
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
+                            </div>
+
+                            <input
+                              type="text"
+                              value={char.role}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setCustomCast((prev) =>
+                                  prev.map((c) => (c.id === char.id ? { ...c, role: val } : c)),
+                                );
+                              }}
+                              className="text-[11.5px] text-[#55534F] border-b border-transparent hover:border-[#D4D2CC] focus:border-[#141413] focus:outline-none bg-transparent w-full"
+                              placeholder={t.characterRole}
+                            />
+
+                            {/* Voice Selection Pill */}
+                            <div className="flex items-center justify-between pt-1 border-t border-[#F0EEE8]">
+                              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-[#141413]">
+                                <Volume2 className="w-3.5 h-3.5 text-indigo-600" />
+                                <span>{persona ? (lang === 'ar' ? persona.nameAr : persona.nameEn) : char.fallbackVoice}</span>
+                              </div>
+
+                              <button
+                                type="button"
+                                onClick={() => handleOpenVoicePickerForCharacter(char.id)}
+                                className="text-[10.5px] font-semibold px-2 py-0.5 rounded bg-[#F4F3EE] hover:bg-[#EAE8E2] text-[#3D3C38] transition-colors cursor-pointer"
+                              >
+                                {t.changeVoice}
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
 
-                  {/* 2. Scene / Story Subject */}
-                  <div className="border-l border-r border-[#DCDAD4] px-2.5 sm:px-6 md:px-9 py-0.5 space-y-1.5 sm:space-y-2">
-                    <label className="block text-[10.5px] sm:text-[12.5px] text-[#8E8D8A]">
-                      {t.step2Scene}
+                  {/* 2. Scene Topic / Dramatic Premise */}
+                  <div className="space-y-2">
+                    <label className="block text-[12.5px] font-bold text-[#141413]">
+                      {t.sceneTopicLabel}
                     </label>
-                    <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap">
-                      {currentScenePresets.map((preset) => (
+
+                    {/* Quick Scenario Preset Chips */}
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      {(lang === 'ar'
+                        ? [
+                            'جلسة تحقيق مع طبيبة وطفل شاهد على الحادث',
+                            'عائلة في رحلة سرية تكتشف كنزاً قديماً',
+                            'طبيب وممرضة وطفل خائف في العيادة',
+                            'مغامرة إنقاذ فضائية في محطة مهجورة',
+                          ]
+                        : [
+                            'Hospital interrogation between detective, doctor, and a 7yo witness',
+                            'Family road trip uncovering an ancient secret map',
+                            'Emergency clinic rescue during a thunderstorm blackout',
+                            'Deep space crew trying to repair the life support airlock',
+                          ]
+                      ).map((premise, pIdx) => (
                         <button
-                          key={preset.id}
+                          key={pIdx}
                           type="button"
-                          onClick={() => {
-                            setSelectedScenePresetId(preset.id);
-                            setCustomSceneTopic(preset.prompt);
-                          }}
-                          className={`px-2 sm:px-2.5 py-0.5 rounded text-[10px] sm:text-[11px] font-medium border transition-colors cursor-pointer ${
-                            selectedScenePresetId === preset.id
-                              ? 'bg-[#141413] text-white border-[#141413]'
-                              : 'bg-[#FAF9F6] text-[#575652] border-[#E2E0D8] hover:border-[#141413]'
-                          }`}
+                          onClick={() => setCustomDialogueTopic(premise)}
+                          className="px-2.5 py-1 rounded-[6px] text-[11px] font-medium bg-[#FAF9F6] text-[#575652] border border-[#E2E0D8] hover:border-[#141413] transition-colors cursor-pointer"
                         >
-                          {preset.label}
+                          {premise}
                         </button>
                       ))}
                     </div>
 
                     <textarea
                       rows={2}
-                      value={customSceneTopic}
-                      onChange={(e) => {
-                        setSelectedScenePresetId('custom');
-                        setCustomSceneTopic(e.target.value);
-                      }}
-                      placeholder={t.scenePlaceholder}
-                      className="w-full px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-[8px] border border-[#D4D2CC] focus:border-[#141413] focus:outline-none text-[11.5px] sm:text-[13.5px] leading-relaxed text-[#141413] bg-[#FAF9F6] resize-none"
+                      value={customDialogueTopic}
+                      onChange={(e) => setCustomDialogueTopic(e.target.value)}
+                      placeholder={lang === 'ar' ? 'اكتب موضوع أو فكرة المشهد الدرامي...' : 'Describe what happens in this dramatic dialogue...'}
+                      className="w-full px-3.5 py-2 rounded-[8px] border border-[#D4D2CC] focus:border-[#141413] focus:outline-none text-[13px] leading-relaxed text-[#141413] bg-[#FAF9F6] resize-none"
                     />
-
-                    <div className="pt-0.5 sm:pt-1">
-                      <button
-                        onClick={handleGenerateAndPlayCustomStory}
-                        disabled={
-                          isSynthesizing || !customSceneTopic.trim() || !customVoiceInput.trim()
-                        }
-                        className="inline-flex items-center gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-[7px] bg-[#141413] hover:bg-[#2A2A28] disabled:opacity-50 text-white text-[11.5px] sm:text-[13.5px] font-medium transition-colors cursor-pointer"
-                      >
-                        <Sparkles className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
-                        <span>{t.generateAndPlay}</span>
-                      </button>
-                    </div>
                   </div>
-                </>
+
+                  {/* 3. Action Buttons & Generated Turns Preview */}
+                  <div className="flex items-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={handleGenerateCustomDialogueScript}
+                      disabled={isGeneratingDialogueScript || !customDialogueTopic.trim()}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-[8px] bg-white border border-[#D4D2CC] hover:border-[#141413] disabled:opacity-50 text-[12.5px] font-semibold text-[#141413] transition-colors cursor-pointer shadow-2xs"
+                    >
+                      {isGeneratingDialogueScript ? (
+                        <Loader2 className="w-4 h-4 animate-spin text-[#141413]" />
+                      ) : (
+                        <Sparkles className="w-4 h-4 text-indigo-600" />
+                      )}
+                      <span>{isGeneratingDialogueScript ? t.generatingScript : t.generateScript}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSynthesizeAndPlayCustomDialogue}
+                      disabled={isSynthesizing || !customDialogueTopic.trim()}
+                      className="inline-flex items-center gap-2 px-5 py-2.5 rounded-[8px] bg-[#141413] hover:bg-[#2A2A28] disabled:opacity-50 text-white text-[12.5px] font-semibold transition-colors cursor-pointer shadow-xs"
+                    >
+                      {isSynthesizing ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Play className={`w-3.5 h-3.5 ${lang === 'ar' ? 'rotate-180' : ''}`} />
+                      )}
+                      <span>{t.synthesizeDialogue}</span>
+                    </button>
+                  </div>
+
+                  {/* Generated Script Turns Accordion / Preview */}
+                  {customDialogueTurns.length > 0 && (
+                    <div className="p-4 rounded-[12px] bg-white border border-[#E5E3DC] space-y-3 max-h-[220px] overflow-y-auto">
+                      <div className="flex items-center justify-between border-b border-[#F0EEE8] pb-2">
+                        <span className="text-[12px] font-bold text-[#141413]">
+                          {t.turnsLabel} ({customDialogueTurns.length})
+                        </span>
+                      </div>
+                      {customDialogueTurns.map((turn, tIdx) => (
+                        <div key={tIdx} className="text-[12px] pb-2 border-b border-[#F5F4F0] last:border-b-0">
+                          <span className="font-bold text-[#141413]">{turn.speakerName}: </span>
+                          <span className="italic text-[#787672] text-[11px]">«{turn.style}» </span>
+                          <span className="text-[#3D3C38]">{turn.text}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               )}
             </div>
-          </div>
+          ) : (
+            /* Solo Monologue Start Page */
+            <div className="flex flex-col sm:flex-row items-center sm:items-center gap-4 sm:gap-6 md:gap-10 lg:gap-12 my-auto py-2 sm:py-4 w-full">
+              {/* Left Column: Monograph Drawing */}
+              <div className="w-[130px] sm:w-[210px] md:w-[260px] lg:w-[310px] shrink-0 flex flex-col items-center justify-center">
+                <div
+                  onClick={
+                    storySourceMode === 'preset'
+                      ? handleStartPresetStory
+                      : handleGenerateAndPlayCustomStory
+                  }
+                  className="relative group w-full cursor-pointer"
+                  title="Click to start the story"
+                >
+                  <img
+                    src="/drawing.jpg"
+                    alt="Precinct 69 Transcripts — Det. M. Giancana Monograph Drawing"
+                    className="w-full h-auto rounded-[2px] transition-transform duration-300 group-hover:scale-[1.015]"
+                  />
+                </div>
+              </div>
+
+              {/* Right Column: Mode Switcher + Story Overview / Custom Creator */}
+              <div
+                className={`min-w-0 w-full flex-1 ${
+                  storySourceMode === 'custom'
+                    ? 'space-y-2 sm:space-y-3 md:space-y-3.5'
+                    : 'space-y-2.5 sm:space-y-3.5 md:space-y-4'
+                }`}
+              >
+                {/* Minimalist 2-Option Story Selector */}
+                <div className="border-l border-r border-[#DCDAD4] px-2.5 sm:px-6 md:px-9 py-1">
+                  <div className="inline-flex p-0.5 sm:p-1 rounded-[7px] sm:rounded-[9px] bg-[#F4F3EF] border border-[#E5E3DC] mb-2 sm:mb-3 flex-wrap">
+                    <button
+                      onClick={() => handleSelectMode('preset')}
+                      className={`px-2 sm:px-4 py-1 sm:py-1.5 rounded-[5px] sm:rounded-[6px] text-[10.5px] sm:text-[12.5px] font-medium transition-all cursor-pointer ${
+                        storySourceMode === 'preset'
+                          ? 'bg-white text-[#141413] shadow-xs'
+                          : 'text-[#6E6D69] hover:text-[#141413]'
+                      }`}
+                    >
+                      {t.featuredStory}
+                    </button>
+                    <button
+                      onClick={() => handleSelectMode('custom')}
+                      className={`px-2 sm:px-4 py-1 sm:py-1.5 rounded-[5px] sm:rounded-[6px] text-[10.5px] sm:text-[12.5px] font-medium transition-all cursor-pointer ${
+                        storySourceMode === 'custom'
+                          ? 'bg-white text-[#141413] shadow-xs'
+                          : 'text-[#6E6D69] hover:text-[#141413]'
+                      }`}
+                    >
+                      {t.createYourOwn}
+                    </button>
+                  </div>
+
+                  {storySourceMode === 'preset' ? (
+                    <div>
+                      <h1 className="text-[18px] sm:text-[23px] md:text-[26px] font-semibold tracking-[-0.025em] text-[#141413] leading-tight pt-2 sm:pt-[12px] px-0">
+                        {storyTitle}
+                      </h1>
+                    </div>
+                  ) : (
+                    <div>
+                      <h1 className="text-[17px] sm:text-[24px] md:text-[28px] font-semibold tracking-[-0.025em] text-[#141413] leading-tight">
+                        {t.createStoryTitle}
+                      </h1>
+                      <p className="text-[11.5px] sm:text-[13px] text-[#8E8D8A] mt-0.5">
+                        {t.createStorySubtitle}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {errorMsg && (
+                  <div className="mx-2.5 sm:mx-6 md:mx-9 text-[12px] text-[#B91C1C] bg-[#FEF2F2] border border-[#FECACA] rounded-[8px] px-3.5 py-2.5 flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-[#DC2626]" />
+                    <div className="flex-1">
+                      <span className="font-semibold block text-[12.5px]">{t.noticeTitle}</span>
+                      <span className="leading-snug">{errorMsg}</span>
+                    </div>
+                    <button
+                      onClick={() => setErrorMsg(null)}
+                      className="text-[#991B1B] hover:text-[#141413] cursor-pointer text-[12px] p-0.5 font-medium"
+                      title={t.dismiss}
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+
+                {storySourceMode === 'preset' ? (
+                  /* Solo Option 1: Precinct 69 Story */
+                  <>
+                    <div className="border-l border-r border-[#DCDAD4] px-2.5 sm:px-6 md:px-9 py-1">
+                      <p className="text-[13px] sm:text-[14px] md:text-[14.5px] leading-[1.6] sm:leading-[1.65] text-[#222220]">
+                        {lang === 'ar' ? AR_PRECINCT_69_SYNOPSIS : PRECINCT_69_SYNOPSIS}
+                      </p>
+                    </div>
+
+                    <div className="border-l border-r border-[#DCDAD4] px-2.5 sm:px-6 md:px-9 py-1">
+                      <div className="text-[10.5px] sm:text-[12px] text-[#8E8D8A]">{t.voicePromptLabel}</div>
+                      <div className="text-[14.5px] font-normal italic text-[#535252] mt-0.5 sm:mt-1 leading-[1.55] sm:leading-[1.65]">
+                        {voicePrompt}
+                      </div>
+
+                      <div className="flex items-center gap-3 flex-wrap mt-3 sm:mt-5">
+                        <button
+                          onClick={handleStartPresetStory}
+                          disabled={isSynthesizing}
+                          className="inline-flex items-center gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-[7px] bg-[#141413] hover:bg-[#2A2A28] text-white text-[11.5px] sm:text-[13.5px] font-medium transition-colors cursor-pointer shadow-xs"
+                        >
+                          <Play className={`w-3.5 sm:w-4 h-3.5 sm:h-4 ${lang === 'ar' ? 'rotate-180' : ''}`} />
+                          <span>
+                            {presetWavCache.url ? t.playStory : t.generateAndPlay}
+                          </span>
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                ) : (
+                  /* Solo Option 2: Create Your Own Solo Story */
+                  <>
+                    <div className="border-l border-r border-[#DCDAD4] px-2.5 sm:px-6 md:px-9 py-0.5 space-y-1.5 sm:space-y-2">
+                      <div className="flex items-center justify-between">
+                        <label className="block text-[10.5px] sm:text-[12.5px] text-[#8E8D8A]">
+                          {t.step1Voice}
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setVoiceTargetCharacterId(null);
+                            setIsVoiceExplorerOpen(true);
+                          }}
+                          className="text-[11px] font-medium text-indigo-600 hover:text-indigo-800 transition-colors inline-flex items-center gap-1 cursor-pointer"
+                        >
+                          <Compass className="w-3 h-3" />
+                          <span>{lang === 'ar' ? 'اختر من مكتبة الأصوات' : 'Pick from Catalog'}</span>
+                        </button>
+                      </div>
+
+                      <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap">
+                        {currentArchetypes.map((arch) => (
+                          <button
+                            key={arch.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedArchetypeId(arch.id);
+                              setCustomVoiceInput(arch.prompt);
+                            }}
+                            className={`px-2 sm:px-2.5 py-0.5 rounded text-[10px] sm:text-[11px] font-medium border transition-colors cursor-pointer ${
+                              selectedArchetypeId === arch.id
+                                ? 'bg-[#141413] text-white border-[#141413]'
+                                : 'bg-[#FAF9F6] text-[#575652] border-[#E2E0D8] hover:border-[#141413]'
+                            }`}
+                          >
+                            {arch.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <div className="relative">
+                        <textarea
+                          rows={2}
+                          value={customVoiceInput}
+                          onChange={(e) => {
+                            setSelectedArchetypeId('custom');
+                            setCustomVoiceInput(e.target.value);
+                          }}
+                          placeholder={t.voicePlaceholder}
+                          className={`w-full py-1.5 sm:py-2 rounded-[8px] border border-[#D4D2CC] focus:border-[#141413] focus:outline-none text-[11.5px] sm:text-[13.5px] leading-relaxed text-[#141413] bg-[#FAF9F6] resize-none ${
+                            lang === 'ar' ? 'pl-20 sm:pl-28 pr-2.5 sm:pr-3.5' : 'pr-20 sm:pr-28 pl-2.5 sm:pr-3.5'
+                          }`}
+                        />
+                        <button
+                          type="button"
+                          onClick={handleEnhanceVoice}
+                          disabled={isEnhancingVoice || !customVoiceInput.trim()}
+                          className={`absolute bottom-2 inline-flex items-center gap-1 sm:gap-1.5 px-2 sm:px-2.5 py-1 rounded-[6px] bg-white border border-[#D4D2CC] hover:border-[#141413] text-[10px] sm:text-[11.5px] font-medium text-[#141413] shadow-2xs disabled:opacity-50 transition-colors cursor-pointer ${
+                            lang === 'ar' ? 'left-2' : 'right-2'
+                          }`}
+                          title={t.enhanceTitle}
+                        >
+                          {isEnhancingVoice ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Sparkles className="w-3 h-3" />
+                          )}
+                          <span>{isEnhancingVoice ? t.enhancingVoice : t.enhanceVoice}</span>
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 2. Scene / Story Subject */}
+                    <div className="border-l border-r border-[#DCDAD4] px-2.5 sm:px-6 md:px-9 py-0.5 space-y-1.5 sm:space-y-2">
+                      <label className="block text-[10.5px] sm:text-[12.5px] text-[#8E8D8A]">
+                        {t.step2Scene}
+                      </label>
+                      <div className="flex items-center gap-1 sm:gap-1.5 flex-wrap">
+                        {currentScenePresets.map((preset) => (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => {
+                              setSelectedScenePresetId(preset.id);
+                              setCustomSceneTopic(preset.prompt);
+                            }}
+                            className={`px-2 sm:px-2.5 py-0.5 rounded text-[10px] sm:text-[11px] font-medium border transition-colors cursor-pointer ${
+                              selectedScenePresetId === preset.id
+                                ? 'bg-[#141413] text-white border-[#141413]'
+                                : 'bg-[#FAF9F6] text-[#575652] border-[#E2E0D8] hover:border-[#141413]'
+                            }`}
+                          >
+                            {preset.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <textarea
+                        rows={2}
+                        value={customSceneTopic}
+                        onChange={(e) => {
+                          setSelectedScenePresetId('custom');
+                          setCustomSceneTopic(e.target.value);
+                        }}
+                        placeholder={t.scenePlaceholder}
+                        className="w-full px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-[8px] border border-[#D4D2CC] focus:border-[#141413] focus:outline-none text-[11.5px] sm:text-[13.5px] leading-relaxed text-[#141413] bg-[#FAF9F6] resize-none"
+                      />
+
+                      <div className="pt-0.5 sm:pt-1">
+                        <button
+                          onClick={handleGenerateAndPlayCustomStory}
+                          disabled={
+                            isSynthesizing || !customSceneTopic.trim() || !customVoiceInput.trim()
+                          }
+                          className="inline-flex items-center gap-2 px-3 sm:px-5 py-1.5 sm:py-2.5 rounded-[7px] bg-[#141413] hover:bg-[#2A2A28] disabled:opacity-50 text-white text-[11.5px] sm:text-[13.5px] font-medium transition-colors cursor-pointer shadow-xs"
+                        >
+                          <Sparkles className="w-3.5 sm:w-4 h-3.5 sm:h-4" />
+                          <span>{t.generateAndPlay}</span>
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )
         )}
 
         {/* ====================================================================
@@ -2409,6 +3401,163 @@ export default function App() {
                 className="px-4 py-2 rounded bg-[#141413] text-white text-[12.5px] font-medium hover:bg-[#2A2A28] cursor-pointer"
               >
                 {t.done}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ====================================================================
+          VOICE EXPLORER MODAL: Female, Other Men, Youth, Children
+         ==================================================================== */}
+      {isVoiceExplorerOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-6">
+          <div className="bg-white rounded-[18px] border border-[#E5E3DC] max-w-4xl w-full max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="px-5 sm:px-7 py-4 border-b border-[#EFECE6] flex items-center justify-between gap-4 bg-[#FAF9F6]">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Compass className="w-4 h-4 text-indigo-600" />
+                  <h3 className="text-[17px] font-bold text-[#141413]">
+                    {t.voiceExplorer}
+                  </h3>
+                </div>
+                <p className="text-[12px] text-[#787672] mt-0.5">
+                  {voiceTargetCharacterId
+                    ? (lang === 'ar'
+                        ? `اختيار صوت للشخصية: ${customCast.find((c) => c.id === voiceTargetCharacterId)?.name || ''}`
+                        : `Selecting voice for: ${customCast.find((c) => c.id === voiceTargetCharacterId)?.name || ''}`)
+                    : t.voiceExplorerDesc}
+                </p>
+              </div>
+
+              <button
+                onClick={() => {
+                  setIsVoiceExplorerOpen(false);
+                  setVoiceTargetCharacterId(null);
+                }}
+                className="p-1.5 text-[#8E8D8A] hover:text-[#141413] rounded-md hover:bg-black/5 transition-colors cursor-pointer"
+                title={t.close}
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Category Filter Tabs */}
+            <div className="px-5 sm:px-7 py-3 border-b border-[#F0EEE8] flex items-center gap-1.5 sm:gap-2 flex-wrap bg-white">
+              {(
+                [
+                  { id: 'all', label: t.categoryAll },
+                  { id: 'female', label: t.categoryFemale },
+                  { id: 'male', label: t.categoryMale },
+                  { id: 'youth', label: t.categoryYouth },
+                  { id: 'child', label: t.categoryChild },
+                ] as const
+              ).map((cat) => (
+                <button
+                  key={cat.id}
+                  onClick={() => setVoiceFilterCategory(cat.id)}
+                  className={`px-3 py-1.5 rounded-[8px] text-[12px] font-semibold transition-all cursor-pointer ${
+                    voiceFilterCategory === cat.id
+                      ? 'bg-[#141413] text-white shadow-2xs'
+                      : 'bg-[#F4F3EE] text-[#55534E] hover:text-[#141413] hover:bg-[#EAE8E0]'
+                  }`}
+                >
+                  {cat.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Voices Grid */}
+            <div className="flex-1 overflow-y-auto p-5 sm:p-7 grid grid-cols-1 md:grid-cols-2 gap-4">
+              {VOICE_CATALOG.filter(
+                (v) => voiceFilterCategory === 'all' || v.category === voiceFilterCategory,
+              ).map((persona) => {
+                const name = lang === 'ar' ? persona.nameAr : persona.nameEn;
+                const tag = lang === 'ar' ? persona.tagAr : persona.tagEn;
+                const prompt = lang === 'ar' ? persona.promptAr : persona.promptEn;
+                const roles = lang === 'ar' ? persona.recommendedRoleAr : persona.recommendedRoleEn;
+
+                return (
+                  <div
+                    key={persona.id}
+                    className="p-4 sm:p-5 rounded-[14px] border border-[#E5E3DC] hover:border-[#141413] transition-all bg-white flex flex-col justify-between gap-3 shadow-2xs hover:shadow-xs group"
+                  >
+                    <div>
+                      {/* Avatar, Name, Prebuilt Voice & Category */}
+                      <div className="flex items-start justify-between gap-2.5 mb-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <span
+                            className={`w-10 h-10 rounded-full flex items-center justify-center text-[20px] shadow-2xs shrink-0 ${persona.avatarColor}`}
+                          >
+                            {persona.avatarEmoji}
+                          </span>
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <h4 className="text-[15px] font-bold text-[#141413] leading-tight">
+                                {name}
+                              </h4>
+                              <span
+                                className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${persona.badgeBg}`}
+                              >
+                                {tag}
+                              </span>
+                            </div>
+                            <span className="text-[11px] text-[#888681] font-mono-code block mt-0.5">
+                              {lang === 'ar' ? `محرك الصوت: ${persona.prebuiltVoice}` : `Engine: ${persona.prebuiltVoice}`}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Prompt description */}
+                      <p className="text-[12px] sm:text-[12.5px] text-[#42413E] leading-relaxed italic bg-[#FAF9F6] p-2.5 rounded-[8px] border border-[#F0EEE8] mb-2.5">
+                        « {prompt} »
+                      </p>
+
+                      {/* Recommended roles */}
+                      <div className="text-[11px] text-[#73716C] leading-snug">
+                        <span className="font-semibold text-[#141413]">
+                          {lang === 'ar' ? 'أدوار مقترحة: ' : 'Suggested Roles: '}
+                        </span>
+                        {roles}
+                      </div>
+                    </div>
+
+                    {/* Action button */}
+                    <div className="pt-2 border-t border-[#F0EEE8] flex items-center justify-end">
+                      <button
+                        onClick={() => handleSelectVoiceFromExplorer(persona)}
+                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-[7px] bg-[#141413] hover:bg-[#2A2A28] text-white text-[12px] font-medium transition-colors cursor-pointer shadow-2xs"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>
+                          {voiceTargetCharacterId
+                            ? t.selectThisVoice
+                            : (lang === 'ar' ? 'استخدام في المونولوج' : 'Use in Monologue')}
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Footer */}
+            <div className="px-5 sm:px-7 py-3 border-t border-[#EFECE6] flex items-center justify-between bg-[#FAF9F6]">
+              <span className="text-[11.5px] text-[#888681]">
+                {lang === 'ar'
+                  ? `${VOICE_CATALOG.length} أصوات مسجلة في المكتبة (إناث، رجال، شباب، أطفال)`
+                  : `${VOICE_CATALOG.length} voice personas in catalog (Female, Men, Youth, Children)`}
+              </span>
+              <button
+                onClick={() => {
+                  setIsVoiceExplorerOpen(false);
+                  setVoiceTargetCharacterId(null);
+                }}
+                className="px-4 py-1.5 rounded-[7px] border border-[#D4D2CC] hover:border-[#141413] text-[12px] font-medium text-[#141413] bg-white cursor-pointer"
+              >
+                {t.close}
               </button>
             </div>
           </div>

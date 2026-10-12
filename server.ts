@@ -257,6 +257,356 @@ async function startServer() {
     }
   });
 
+  // Audio helper utilities for Multi-Character Audio Concatenation
+  function extractPcmFromBase64(base64Str: string): Buffer {
+    const buf = Buffer.from(base64Str, 'base64');
+    if (buf.length > 44 && buf.toString('ascii', 0, 4) === 'RIFF') {
+      const dataIdx = buf.indexOf('data');
+      if (dataIdx !== -1 && dataIdx + 8 < buf.length) {
+        return buf.subarray(dataIdx + 8);
+      }
+      return buf.subarray(44);
+    }
+    return buf;
+  }
+
+  function applyMicroFade(buf: Buffer, sampleRate = 24000) {
+    const samples = Math.min(240, Math.floor(buf.length / 2));
+    for (let i = 0; i < samples; i++) {
+      const offset = buf.length - (samples - i) * 2;
+      if (offset >= 0 && offset + 1 < buf.length) {
+        const val = buf.readInt16LE(offset);
+        const gain = (samples - i) / samples;
+        buf.writeInt16LE(Math.round(val * gain), offset);
+      }
+    }
+  }
+
+  function buildWavFromPcmBuffer(pcmBuf: Buffer, sampleRate = 24000): Buffer {
+    const numChannels = 1;
+    const bitDepth = 16;
+    const dataLen = pcmBuf.length;
+    const byteRate = sampleRate * numChannels * (bitDepth / 8);
+    const blockAlign = numChannels * (bitDepth / 8);
+
+    const header = Buffer.alloc(44);
+    header.write('RIFF', 0);
+    header.writeUInt32LE(36 + dataLen, 4);
+    header.write('WAVE', 8);
+    header.write('fmt ', 12);
+    header.writeUInt32LE(16, 16);
+    header.writeUInt16LE(1, 20); // PCM format
+    header.writeUInt16LE(numChannels, 22);
+    header.writeUInt32LE(sampleRate, 24);
+    header.writeUInt32LE(byteRate, 28);
+    header.writeUInt16LE(blockAlign, 32);
+    header.writeUInt16LE(bitDepth, 34);
+    header.write('data', 36);
+    header.writeUInt32LE(dataLen, 40);
+
+    return Buffer.concat([header, pcmBuf]);
+  }
+
+  // 2B. Synthesize Multi-Character Dialogue (POST /api/synthesize-dialogue)
+  app.post('/api/synthesize-dialogue', async (req, res) => {
+    try {
+      const key = getApiKey(req);
+      if (!key) {
+        return res.status(400).json({ error: 'No Gemini API key available on server.' });
+      }
+      const {
+        modelName = 'models/gemini-3.8-flash-tts',
+        turns,
+      } = req.body || {};
+
+      if (!Array.isArray(turns) || turns.length === 0) {
+        return res.status(400).json({ error: 'turns array is required.' });
+      }
+
+      const modelPath = modelName.startsWith('models/') ? modelName : `models/${modelName}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/${modelPath}:generateContent?key=${encodeURIComponent(key)}`;
+
+      console.log(`[Multi-Voice TTS] Synthesizing ${turns.length} dialogue turns with model ${modelPath}...`);
+
+      // Synthesize turns with concurrency limit of 3 to avoid timeouts
+      const pcmTurnResults: { turnIndex: number; pcm: Buffer; characterId: string; speakerName: string; style: string; text: string }[] = [];
+
+      // Concurrency worker
+      const queue = [...turns];
+      const executeTurn = async (turn: any, index: number) => {
+        const chosenVoice = turn.voiceId || turn.fallbackVoice || 'Aoede';
+        const fallbackVoice = turn.fallbackVoice || 'Aoede';
+
+        const payload = {
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: turn.text,
+                  speech_metadata: { style: turn.style || '' },
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            responseModalities: ['AUDIO'],
+            speechConfig: {
+              voiceConfig: {
+                voice: chosenVoice,
+              },
+            },
+          },
+        };
+
+        let resp = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json; charset=utf-8' },
+          body: JSON.stringify(payload),
+        });
+
+        // Fallback retry if custom voice ID was pruned or failed
+        if (!resp.ok && chosenVoice !== fallbackVoice) {
+          console.warn(`[Multi-Voice TTS] Turn ${index} voice "${chosenVoice}" failed (${resp.status}). Retrying with fallback voice "${fallbackVoice}"...`);
+          const fbPayload = {
+            contents: [
+              {
+                role: 'user',
+                parts: [
+                  {
+                    text: turn.text,
+                    speech_metadata: { style: turn.style || '' },
+                  },
+                ],
+              },
+            ],
+            generationConfig: {
+              responseModalities: ['AUDIO'],
+              speechConfig: {
+                voiceConfig: {
+                  voice: fallbackVoice,
+                },
+              },
+            },
+          };
+          resp = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json; charset=utf-8' },
+            body: JSON.stringify(fbPayload),
+          });
+        }
+
+        if (!resp.ok) {
+          const errText = await resp.text();
+          console.error(`[Multi-Voice TTS] Turn ${index} failed: ${errText.slice(0, 150)}`);
+          // Generate 1 second of silence so the conversation sequence isn't broken
+          return {
+            turnIndex: index,
+            pcm: Buffer.alloc(24000 * 2), // 1s silence
+            characterId: turn.characterId,
+            speakerName: turn.speakerName,
+            style: turn.style,
+            text: turn.text,
+          };
+        }
+
+        const data = await resp.json();
+        const parts = data.candidates?.[0]?.content?.parts || [];
+        const pcmChunks: Buffer[] = [];
+        for (const p of parts) {
+          if (p.inlineData?.data) {
+            pcmChunks.push(extractPcmFromBase64(p.inlineData.data));
+          }
+        }
+        const fullPcm = Buffer.concat(pcmChunks);
+        if (fullPcm.length > 0) {
+          applyMicroFade(fullPcm);
+        }
+        return {
+          turnIndex: index,
+          pcm: fullPcm.length > 0 ? fullPcm : Buffer.alloc(24000 * 2),
+          characterId: turn.characterId,
+          speakerName: turn.speakerName,
+          style: turn.style,
+          text: turn.text,
+        };
+      };
+
+      // Run up to 3 turns concurrently
+      const CONCURRENCY = 3;
+      const turnResults: any[] = new Array(turns.length);
+      let nextIdx = 0;
+
+      async function worker() {
+        while (nextIdx < turns.length) {
+          const current = nextIdx++;
+          try {
+            turnResults[current] = await executeTurn(turns[current], current);
+          } catch (e: any) {
+            console.error(`[Multi-Voice TTS] Turn ${current} exception:`, e);
+            turnResults[current] = {
+              turnIndex: current,
+              pcm: Buffer.alloc(24000 * 2),
+              characterId: turns[current].characterId,
+              speakerName: turns[current].speakerName,
+              style: turns[current].style,
+              text: turns[current].text,
+            };
+          }
+        }
+      }
+
+      await Promise.all(Array.from({ length: Math.min(CONCURRENCY, turns.length) }, () => worker()));
+
+      // Assemble all turns into a continuous audio master with 0.22s natural dialogue pauses
+      const pauseBytes = Math.round(24000 * 0.22) * 2; // 0.22s pause = 10,560 bytes
+      const pauseBuf = Buffer.alloc(pauseBytes);
+
+      const combinedPcmChunks: Buffer[] = [];
+      const updatedTurns: any[] = [];
+      let runningTimeSec = 0.0;
+
+      for (let i = 0; i < turnResults.length; i++) {
+        const item = turnResults[i];
+        const durationSec = Number((item.pcm.length / (24000 * 2)).toFixed(2));
+        const startSec = Number(runningTimeSec.toFixed(2));
+        const endSec = Number((startSec + durationSec).toFixed(2));
+
+        updatedTurns.push({
+          turnIndex: i,
+          characterId: item.characterId,
+          speakerName: item.speakerName,
+          style: item.style,
+          text: item.text,
+          start: startSec,
+          end: endSec,
+        });
+
+        combinedPcmChunks.push(item.pcm);
+        runningTimeSec = endSec;
+
+        // Add pause after each turn except the last
+        if (i < turnResults.length - 1) {
+          combinedPcmChunks.push(pauseBuf);
+          runningTimeSec += 0.22;
+        }
+      }
+
+      const masterPcm = Buffer.concat(combinedPcmChunks);
+      const wavBuffer = buildWavFromPcmBuffer(masterPcm, 24000);
+      const wavBase64 = wavBuffer.toString('base64');
+
+      console.log(`[Multi-Voice TTS] Successfully synthesized ${updatedTurns.length} turns! Total duration: ${runningTimeSec.toFixed(2)}s`);
+
+      res.json({
+        wavBase64,
+        turns: updatedTurns,
+        totalDurationSec: Number(runningTimeSec.toFixed(2)),
+      });
+    } catch (err: any) {
+      console.error('[Multi-Voice TTS Error]', err);
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
+  // 2C. Generate Multi-Character Story Script (Gemini Flash)
+  app.post('/api/generate-dialogue-story', async (req, res) => {
+    try {
+      const key = getApiKey(req);
+      if (!key) {
+        return res.status(400).json({ error: 'No Gemini API key available on server.' });
+      }
+      const { sceneTopic, characters, language = 'en' } = req.body || {};
+      const isArabic = language === 'ar';
+      const models = ['models/gemini-2.5-flash', 'models/gemini-3.8-flash', 'models/gemini-3.5-flash'];
+
+      const characterDescriptions = Array.isArray(characters)
+        ? characters
+            .map((c: any) => `- ID: "${c.id}", Name: "${c.name}", Role: "${c.role}", Category: "${c.category || 'general'}"`)
+            .join('\n')
+        : '- Character A: Detective\n- Character B: Suspect';
+
+      const systemPrompt = isArabic
+        ? `أنت كاتب سيناريو ومسرح درامي محترف للغاية. مطلوب منك كتابة نص حواري درامي مثير ومشوق من 6 إلى 8 مقاطع (turns) بين الشخصيات التالية:
+${characterDescriptions}
+
+سياق وفكرة المشهد:
+"${sceneTopic || 'مواجهة درامية مثيرة ومؤثرة'}"
+
+قواعد السيناريو الإلزامية:
+1. وزّع الحوار بالتناوب الطبيعي بين هذه الشخصيات المحددة حصراً (استخدم نفس معرف الشخصية characterId واسمها speakerName).
+2. يجب أن يعكس أسلوب كل شخصية فئتها العمرية ونوعها (مثلاً: إذا كانت الشخصية طفلاً، استخدم نبرة وبراءة طفولية وتساؤلات مرحة أو خائفة؛ وإذا كانت أنثى أو رجلاً أو شاباً فليكن الأسلوب معبراً ومتقناً).
+3. اكتب الحوار باللغة العربية الفصيحة الدرامية الحية والمعبرة.
+4. استخدم في نصوص الحوار (text) وسوماً صوتية تمثيلية بين أقواس مثلثية فقط: <laugh>, <chuckle>, <sigh>, <cough>, <breath>, <short pause>.
+5. حدد في حقل "style" توجيهاً إخراجياً صوتياً دقيقاً ومفصلاً لكل مقطع (مثل: "صوت هامس مذعور قريب من الميكروفون"، "صوت طفل مرتفع ومتحمس يقفز فرحاً"، "صوت جهوري عميق وأجش"، "ضحكة خيبة مريرة").
+6. أخرج النتيجة بتنسيق JSON حصراً.`
+        : `You are an elite dramatic screenwriter creating a gripping, dynamic multi-character dialogue script of 6 to 8 turns between these characters:
+${characterDescriptions}
+
+Scene Setting / Scenario:
+"${sceneTopic || 'Tense confrontation and revelation'}"
+
+CRITICAL SCRIPT RULES:
+1. Alternate turns naturally between the exact provided characters, matching their "characterId" and "speakerName".
+2. Distinct vocal persona per character: Tailor dialogue and rhythm to their age and role (e.g. child characters should have innocent high-energy wonder or fear; youth characters rapid and spirited; adults commanding or empathetic).
+3. Every turn's "text" must include 1 to 2 discrete vocal tags from: <laugh>, <chuckle>, <sigh>, <cough>, <breath>, <short pause>.
+4. Provide a rich, descriptive "style" for each turn directing vocal tone, volume, and pacing.
+5. Output pure JSON matching the schema.`;
+
+      for (const m of models) {
+        try {
+          const resp = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/${m}:generateContent?key=${encodeURIComponent(key)}`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json; charset=utf-8' },
+              body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: systemPrompt }] }],
+                generationConfig: {
+                  temperature: 0.85,
+                  responseMimeType: 'application/json',
+                  responseSchema: {
+                    type: 'OBJECT',
+                    properties: {
+                      title: { type: 'STRING' },
+                      turns: {
+                        type: 'ARRAY',
+                        items: {
+                          type: 'OBJECT',
+                          properties: {
+                            characterId: { type: 'STRING' },
+                            speakerName: { type: 'STRING' },
+                            style: { type: 'STRING' },
+                            text: { type: 'STRING' },
+                          },
+                          required: ['characterId', 'speakerName', 'style', 'text'],
+                        },
+                      },
+                    },
+                    required: ['title', 'turns'],
+                  },
+                },
+              }),
+            },
+          );
+          if (!resp.ok) continue;
+          const data = await resp.json();
+          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (!rawText) continue;
+          const parsed = JSON.parse(rawText);
+          if (parsed && Array.isArray(parsed.turns) && parsed.turns.length >= 4) {
+            return res.json(parsed);
+          }
+        } catch (e) {
+          // try next model
+        }
+      }
+      res.status(500).json({ error: 'Failed to generate dialogue story.' });
+    } catch (err: any) {
+      res.status(500).json({ error: err?.message || String(err) });
+    }
+  });
+
   // 3. Generate 16-Beat Story Script (Gemini Flash)
   app.post('/api/generate-story', async (req, res) => {
     try {

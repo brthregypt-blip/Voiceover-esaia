@@ -1,0 +1,334 @@
+// Localization and Internationalization Module (Arabic & English)
+import { ActingBeat } from './App';
+
+export type Language = 'en' | 'ar';
+
+export const AR_PRECINCT_69_TITLE = 'اعتراف المحقق';
+export const AR_PRECINCT_69_SUBTITLE = 'صوت مخصص واحد عبر 16 حالة شعورية متتالية';
+export const AR_PRECINCT_69_SYNOPSIS =
+  'الساعة 2:14 فجراً في غرفة التحقيق (ب). استمع إلى المحقق المتقاعد ماركو جيانكانا وهو ينهار عبر 16 تحولاً شعورياً سريعاً ومتتابعاً — يضحك، يسعل، يصرخ، ويهمس — تم توليدها جميعاً في لقطة واحدة مستمرة من وصف صوتي واحد.';
+
+export const AR_INITIAL_VOICE_DESIGN_PROMPT =
+  'محقق جرائم قتل متقاعد من بروكلين يبلغ من العمر 62 عاماً. نبرة باريتون خشنة ووقورة ذات رنين صدري عميق، وأوتار صوتية مجروحة من التدخين، مع إيقاع كلام بطيء وواثق من شوارع نيويورك الكلاسيكية.';
+
+export const AR_INITIAL_ACTING_BEATS: ActingBeat[] = [
+  {
+    index: 0,
+    beat: '01. ثقة وغرور مطلق',
+    style: 'مغرور، مسترخٍ، متكئ إلى الخلف على كرسي معدني، لهجة واثقة ومتهكمة ببطء',
+    text: '<chuckle> ثمانية وعشرون عاماً قضيتها في قسم التحقيقات يا فتى، وتظن أن هذا الملف الصغير سيربكني؟',
+    start: 0,
+    end: 5,
+  },
+  {
+    index: 1,
+    beat: '02. استهزاء وسخرية',
+    style: 'مستهزئ، يضحك بتهكم من أنفه، غير مبالٍ ومستعلٍ',
+    text: '<laugh> انظر إلى يديك، إنهما ترتعشان أكثر من يدي! <short pause> اجلس قبل أن تؤذي نفسك.',
+    start: 5,
+    end: 10,
+  },
+  {
+    index: 2,
+    beat: '03. تهكم مصطنع الأدب',
+    style: 'مسرحي، يتصنع البراءة، يقطر سخرية مع نبرة بطيئة ومدروسة للتأكيد',
+    text: 'أوه، أنا آسف حقاً، هل سببت حجتي إزعاجاً لجدولك الزمني الصغير؟ <sigh> قلبي يتمزق من أجل إدارة التفتيش الداخلي.',
+    start: 10,
+    end: 15,
+  },
+  {
+    index: 3,
+    beat: '04. غضب وانزعاج مباغت',
+    style: 'صوت حاد ومرتفع، انزعاج مفاجئ، اختفاء الابتسامة والاقتراب للأمام',
+    text: 'انتظر لحظة. <short pause> من أين حصلت على هذا السجل المصرفي؟ هذا الملف كان مشمولاً بأمر قضائي سري.',
+    start: 15,
+    end: 20,
+  },
+  {
+    index: 4,
+    beat: '05. توتر وجفاف حلق',
+    style: 'مباغت، دفاعي، جفاف في الحلق، كلام متسرع ومرتبك قليلاً',
+    text: '<cough> <short pause> اسمع، تلك الحوالة في نوفمبر كانت مكافأة لمصدر سري، حسناً؟ <breath> الجميع في مكافحة المخدرات وافقوا عليها.',
+    start: 20,
+    end: 26,
+  },
+  {
+    index: 5,
+    beat: '06. تهديد بارد ومهيب',
+    style: 'صوت هادر، منخفض، خطير ومهيب، نظرة جامدة وباردة',
+    text: 'استمع إلي بعناية شديدة الآن. <short pause> إذا واصلت النبش وراء هذا الخيط، فسوف تدفن نصف القيادات في مقر الشرطة العام.',
+    start: 26,
+    end: 32,
+  },
+  {
+    index: 6,
+    beat: '07. صدمة وتخبط',
+    style: 'صوت مرتفع مرتبك، وتيرة سريعة، دفاعي، فقدان السيطرة مع إطباق الفخ',
+    text: '<breath> انتظر—موريتي كان يرتدي جهاز تسجيل؟! <short pause> لا، لا، مستحيل، موريتي شريكي لاثني عشر عاماً، لن يغدر بي!',
+    start: 32,
+    end: 38,
+  },
+  {
+    index: 7,
+    beat: '08. ضحكة يأس مريرة',
+    style: 'ضحكة جوفاء ومريرة، إدراك ممزوج بالاشمئزاز، هز الرأس خيبة',
+    text: '<laugh> <sigh> جهاز تسجيل. في مطبخي الخاص. <chuckle> بينما كانت زوجتي تصب له القهوة. أمر لا يصدق.',
+    start: 38,
+    end: 44,
+  },
+  {
+    index: 8,
+    beat: '09. انفجار غضب هائل',
+    style: 'أعلى طبقة صوتية مدوية، صراخ غاضب، عروق نافرة، خيانة حارقة وغضب عارم',
+    text: 'تلقيت رصاصتين لحماية ذلك الخائن! <breath> وحافظت على راتبه التقاعدي بينما كان غارقاً في مشاكله!',
+    start: 44,
+    end: 50,
+  },
+  {
+    index: 9,
+    beat: '10. انكسار واستسلام مباغت',
+    style: 'انخفاض مفاجئ في نبرة الصوت، إرهاق تام وثقل، خروج كل الهواء من صدره',
+    text: '<sigh> <short pause> أوقف شريط التسجيل. <breath> فقط... أوقف هذا المسجل اللعين لعشر ثوانٍ.',
+    start: 50,
+    end: 55,
+  },
+  {
+    index: 10,
+    beat: '11. همس مريب ومذعور',
+    style: 'همس قريب جداً من الميكروفون، حذر شديد، اقتراب فوق الطاولة',
+    text: '<breath> اخفض صوتك، جدران هذا القسم لها آذان. <short pause> أنت لا تملك أدنى فكرة عمن يملك ذلك المرفأ حقاً.',
+    start: 55,
+    end: 61,
+  },
+  {
+    index: 11,
+    beat: '12. مساومة يائسة بصوت جهوري',
+    style: 'Snap back to loud full-chest volume, NOT whispering, عودة مفاجئة لصوت جهوري مرتفع كامل الصدر، استجداء وتفاوض سريع ولهث',
+    text: '<breath> امنحني الحصانة القضائية وسأقدم لك نائب المفوض العام على طبق من فضة! <short pause> الأسماء، التواريخ، الحسابات السرية، كل شيء!',
+    start: 61,
+    end: 68,
+  },
+  {
+    index: 12,
+    beat: '13. صوت متهدج ومكسور',
+    style: 'صوت مكسور يرتجف، حبس الدموع، هشاشة وضعف حقيقي',
+    text: '<sigh> ابنتي تبدأ دراستها الجامعية بعد ثلاثة أسابيع. <breath> إذا رأتني مقيداً بالأصفاد في نشرة أخبار السادسة... <short pause> سيموت قلبها.',
+    start: 68,
+    end: 75,
+  },
+  {
+    index: 13,
+    beat: '14. خواء وشرود مسكون',
+    style: 'خدر، نبرة جوفاء باردة، نظرة تائهة في الفراغ، ثبات شبحي',
+    text: 'تتجاوز الخط الأحمر مرة واحدة لإنقاذ طفل فوق السطح... <sigh> وبعد عشر سنوات لا تستطيع حتى التعرف على الشخص في المرآة.',
+    start: 75,
+    end: 81,
+  },
+  {
+    index: 14,
+    beat: '15. سخرية ذاتية ساخرة',
+    style: 'سخرية متقبلة للأمر الواقع، دفء رجل عجوز متعب وتنهيدة ساخرة',
+    text: '<chuckle> حفلة تقاعد رائعة، أليس كذلك؟ <short pause> لا ساعة ذهبية، فقط زوج من الأصفاد الحديدية.',
+    start: 81,
+    end: 86,
+  },
+  {
+    index: 15,
+    beat: '16. اعتراف أخير بهدوء قاتل',
+    style: 'هدوء مميت، ثبات حاسم كحد السيف، نبرة وداع هادئة وسكون تام',
+    text: '<breath> أعد تشغيل الشريط يا محقق. <short pause> سأخبرك أين دفنت مفتاح الخزانة.',
+    start: 86,
+    end: 92,
+  },
+];
+
+export const AR_VOICE_ARCHETYPES = [
+  {
+    id: 'smoky-baritone',
+    label: 'باريتون عميق ودخاني',
+    prompt:
+      'رجل في الـ 55 من عمره بصوت باريتون رنان ودافئ، وإيقاع كلام هادئ وموزون مع وقار ورزانة طبيعية.',
+  },
+  {
+    id: 'gravelly-bass',
+    label: 'باس منخفض وأجش',
+    prompt:
+      'رجل في الـ 44 من عمره بصوت باس منخفض وأجش، ورنين صدري عميق مع أسلوب إلقاء صلب ومدروس.',
+  },
+  {
+    id: 'velvety-contralto',
+    label: 'كونترالتو نقي ومخملي',
+    prompt:
+      'امرأة في الـ 68 من عمرها بصوت كونترالتو مخملي ونقي، مع مخارج حروف متقنة ونبرة أرستقراطية متزنة.',
+  },
+  {
+    id: 'warm-soprano',
+    label: 'سوبرانو دافئ ولحني',
+    prompt:
+      'امرأة في الـ 29 من عمرها بصوت سوبرانو دافئ وعذب، ونطق واضح وإيقاع كلام حيوي ومشرق.',
+  },
+];
+
+export const AR_SCENE_PRESETS = [
+  {
+    id: 'wagyu',
+    label: 'كاتشب على لحم واغيو',
+    prompt: 'طاهٍ حائز على نجمة ميشلان يضبط ضيفاً مهماً يسكب الكاتشب على شريحة لحم واغيو معتقة لـ 60 يوماً',
+  },
+  {
+    id: 'airlock',
+    label: 'غرفة ضغط جوي مخترقة',
+    prompt: 'قائد محطة فضائية يكتشف في ذعر أن بوابة الخروج إلى الفضاء العميق فُتحت عمداً من الداخل',
+  },
+  {
+    id: 'vermeer',
+    label: 'لوحة فيرمير المسروقة',
+    prompt: 'خبير تحف يدرك فجأة أن اللوحة المهملة في العلية هي في الحقيقة لوحة أثرية مسروقة للرسام فيرمير',
+  },
+  {
+    id: 'alibi',
+    label: 'حجة غياب إشبين العريس',
+    prompt: 'إشبين العريس يدرك في منتصف خطابه أمام الحضور أن العريس استغل حفل الزفاف كحجة غياب لعملية سرقة كبرى',
+  },
+];
+
+export const TRANSLATIONS = {
+  en: {
+    brand: 'Monologue',
+    tagline: 'One custom voice - 16 emotions in a single take',
+    back: 'Back',
+    beatCounter: 'BEAT',
+    downloadWav: 'WAV',
+    scriptAndTags: 'Script & Tags',
+    settings: 'Settings',
+    languageName: 'English',
+    languageToggle: 'العربية',
+    switchLanguage: 'تبديل للغة العربية',
+
+    // Front page
+    featuredStory: 'Featured Story',
+    createYourOwn: 'Create Your Own',
+    createStoryTitle: 'Create Your Own Story',
+    createStorySubtitle: 'Design one voice and a scene—Gemini 3.8 Flash writes 16 rapid emotional shifts',
+    voicePromptLabel: 'Voice Prompt',
+    playStory: 'Play Story',
+    generateAndPlay: 'Generate & Play Story',
+    resumeStory: 'Resume',
+    pauseStory: 'Pause',
+
+    step1Voice: '1. Choose or Describe Your Voice',
+    voicePlaceholder: 'Describe age, gender, vocal register, and cadence (e.g., A 68-year-old woman with a velvety, crystalline contralto)...',
+    enhanceVoice: 'Enhance',
+    enhancingVoice: 'Enhancing...',
+    enhanceTitle: 'Use Gemini 3.8 Flash to enhance this voice description',
+
+    step2Scene: '2. Story Subject, Scene, or Setting',
+    scenePlaceholder: 'What is happening in this scene? (e.g., A Michelin chef discovers someone put ketchup on his dry-aged wagyu)...',
+
+    noticeTitle: 'Voice Generation Notice',
+    dismiss: 'Dismiss',
+
+    // Teleprompter
+    statusWritingStory: 'Writing your story...',
+    statusDesigningVoice: 'Designing your voice...',
+    statusNarratingStory: 'Narrating your story...',
+    statusGeneratingStory: 'Generating your story...',
+    prevBeat: 'Previous Beat (←)',
+    nextBeat: 'Next Beat (→)',
+    keyboardHint: 'Use ↑ / ↓ or ← / → keys to step through beats',
+
+    // Drawer 1: Script & Tags
+    drawerScriptTitle: 'Script & Tags',
+    scriptTurnByTurnTitle: 'Turn-by-Turn Script (Emotions & Spoken Lines)',
+    scriptTurnByTurnDesc: 'Full breakdown of all 16 acting beats with style directions and vocal tags',
+    copyScript: 'Copy Script',
+    copied: 'Copied',
+    scriptContinuousTitle: 'Continuous Verbatim Script (Lines & Vocal Tags)',
+    scriptContinuousDesc: 'Clean text prompt passed directly to Gemini 3.8 Flash TTS',
+    copyPrompt: 'Copy Prompt',
+
+    // Drawer 2: Settings
+    drawerSettingsTitle: 'Voice Design & Model Settings',
+    ttsModelLabel: 'TTS Model',
+    fallbackVoiceLabel: 'Fallback Prebuilt Voice',
+    autoFallback: 'Auto (Male → Charon, Female → Sulafat)',
+    charonDesc: 'Charon (Deep Baritone - Male)',
+    sulafatDesc: 'Sulafat (Warm & Resonant - Female)',
+    fenrirDesc: 'Fenrir (Gravelly - Male)',
+    puckDesc: 'Puck (Expressive - Neutral)',
+    koreDesc: 'Kore (Composed - Female)',
+    aoedeDesc: 'Aoede (Warm - Female)',
+    reGenerateStory: 'Re-Generate Current Story',
+    done: 'Done',
+    close: 'Close',
+  },
+  ar: {
+    brand: 'مونولوج',
+    tagline: 'صوت مخصص واحد — 16 حالة شعورية في لقطة صوتية واحدة مستمرة',
+    back: 'رجوع',
+    beatCounter: 'المشهد',
+    downloadWav: 'WAV',
+    scriptAndTags: 'النص والوسوم',
+    settings: 'الإعدادات',
+    languageName: 'العربية',
+    languageToggle: 'English',
+    switchLanguage: 'Switch to English',
+
+    // Front page
+    featuredStory: 'القصة المميزة',
+    createYourOwn: 'أنشئ قصتك الخاصة',
+    createStoryTitle: 'أنشئ قصتك الدرامية الخاصة',
+    createStorySubtitle: 'صمم نبرة صوت ومشهداً درامياً — يبتكر Gemini 3.8 Flash النص ويؤديه عبر 16 تحولاً شعورياً سريعاً',
+    voicePromptLabel: 'وصف الصوت',
+    playStory: 'تشغيل القصة',
+    generateAndPlay: 'توليد وتشغيل القصة',
+    resumeStory: 'استئناف',
+    pauseStory: 'إيقاف مؤقت',
+
+    step1Voice: '1. اختر أو صِف نبرة الصوت',
+    voicePlaceholder: 'صف العمر والجنس وطبقة الصوت وإيقاع الكلام (مثال: رجل في الخمسينيات بنبرة باريتون دافئة وعميقة وإيقاع كلام هادئ)...',
+    enhanceVoice: 'تحسين الوصف',
+    enhancingVoice: 'جاري التحسين...',
+    enhanceTitle: 'استخدم Gemini 3.8 Flash لتحسين هذا الوصف الصوتي باحترافية',
+
+    step2Scene: '2. فكرة القصة، المشهد، أو السياق الدرامي',
+    scenePlaceholder: 'ما الذي يحدث في هذا المشهد؟ (مثال: طاهٍ حائز على نجمة ميشلان يكتشف وضع الكاتشب على لحم واغيو معتق)...',
+
+    noticeTitle: 'تنبيه توليد الصوت',
+    dismiss: 'إغلاق',
+
+    // Teleprompter
+    statusWritingStory: 'جاري كتابة قصتك الدرامية...',
+    statusDesigningVoice: 'جاري تصميم وبناء الصوت المخصص...',
+    statusNarratingStory: 'جاري توليد الأداء الصوتي الدرامي...',
+    statusGeneratingStory: 'جاري توليد القصة الصوتية...',
+    prevBeat: 'المشهد السابق (←)',
+    nextBeat: 'المشهد التالي (→)',
+    keyboardHint: 'استخدم مفاتيح ↑ / ↓ أو ← / → للتنقل بين المشاهد',
+
+    // Drawer 1: Script & Tags
+    drawerScriptTitle: 'النص والوسوم الصوتية',
+    scriptTurnByTurnTitle: 'النص مشهداً بمشهد (المشاعر والتوجيهات الصوتية)',
+    scriptTurnByTurnDesc: 'تفصيل كامل لكافة المشاهد الـ 16 مع توجيهات الأداء والوسوم الصوتية التمثيلية',
+    copyScript: 'نسخ النص',
+    copied: 'تم النسخ',
+    scriptContinuousTitle: 'النص المتصل المباشر (العبارات والوسوم)',
+    scriptContinuousDesc: 'النص البرمجي المباشر المرسل إلى محرك Gemini 3.8 Flash TTS',
+    copyPrompt: 'نسخ النص المباشر',
+
+    // Drawer 2: Settings
+    drawerSettingsTitle: 'إعدادات تصميم الصوت والنموذج',
+    ttsModelLabel: 'نموذج الصوت (TTS)',
+    fallbackVoiceLabel: 'الصوت الاحتياطي الجاهز',
+    autoFallback: 'تلقائي (ذكر ← Charon، أنثى ← Sulafat)',
+    charonDesc: 'Charon (باريتون عميق - ذكر)',
+    sulafatDesc: 'Sulafat (دافئ ورنان - أنثى)',
+    fenrirDesc: 'Fenrir (صوت أجش - ذكر)',
+    puckDesc: 'Puck (تعبيري - محايد)',
+    koreDesc: 'Kore (هادئ ورصين - أنثى)',
+    aoedeDesc: 'Aoede (دافئ - أنثى)',
+    reGenerateStory: 'إعادة توليد القصة الحالية',
+    done: 'تم',
+    close: 'إغلاق',
+  },
+};

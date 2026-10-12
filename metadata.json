@@ -1,0 +1,8 @@
+{
+  "name": "Remix esaia",
+  "description": "Immersive single-column teleprompter and Voice Design acting reel showcasing 16 emotional states in a single continuous take using Gemini TTS.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

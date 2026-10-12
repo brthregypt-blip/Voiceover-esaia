@@ -3,13 +3,70 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Monologue</title>
-    <meta name="description" content="Immersive single-column teleprompter and Voice Design acting reel showcasing 16 emotional states in a single continuous take using Gemini 3.8 Flash TTS (models/gemini-3.8-flash-tts) and audio alignment." />
-    <meta property="og:title" content="Monologue" />
-    <meta property="og:description" content="Immersive single-column teleprompter and Voice Design acting reel showcasing 16 emotional states in a single continuous take using Gemini 3.8 Flash TTS (models/gemini-3.8-flash-tts) and audio alignment." />
+    <title>Remix esaia</title>
+    <meta name="description" content="Immersive single-column teleprompter and Voice Design acting reel showcasing 16 emotional states in a single continuous take using Gemini TTS." />
+    <meta property="og:title" content="Remix esaia" />
+    <meta property="og:description" content="Immersive single-column teleprompter and Voice Design acting reel showcasing 16 emotional states in a single continuous take using Gemini TTS." />
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Playfair+Display:wght@500;600;700&family=Tajawal:wght@400;500;700&display=swap" rel="stylesheet">
+    <script>
+      // Gracefully silence Vite dev HMR WebSocket connection warnings in preview iframe
+      (function() {
+        if (typeof window !== 'undefined') {
+          window.addEventListener('unhandledrejection', function(event) {
+            var str = String(event?.reason?.message || event?.reason || '');
+            if (/websocket|vite|@vite\/client/i.test(str)) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          }, true);
+
+          window.addEventListener('error', function(event) {
+            var msg = String(event?.message || '');
+            if (/websocket|vite|@vite\/client/i.test(msg)) {
+              event.preventDefault();
+              event.stopImmediatePropagation();
+            }
+          }, true);
+
+          try {
+            var NativeWS = window.WebSocket;
+            if (NativeWS) {
+              window.WebSocket = function(url, protocols) {
+                if (protocols === 'vite-hmr' || (typeof url === 'string' && (url.includes('vite') || url.includes('token=')))) {
+                  var target = new EventTarget();
+                  return Object.assign(target, {
+                    url: String(url),
+                    readyState: 3,
+                    bufferedAmount: 0,
+                    extensions: '',
+                    protocol: '',
+                    binaryType: 'blob',
+                    CONNECTING: 0,
+                    OPEN: 1,
+                    CLOSING: 2,
+                    CLOSED: 3,
+                    send: function() {},
+                    close: function() {},
+                    onopen: null,
+                    onclose: null,
+                    onerror: null,
+                    onmessage: null,
+                  });
+                }
+                return new NativeWS(url, protocols);
+              };
+              window.WebSocket.prototype = NativeWS.prototype;
+              window.WebSocket.CONNECTING = NativeWS.CONNECTING;
+              window.WebSocket.OPEN = NativeWS.OPEN;
+              window.WebSocket.CLOSING = NativeWS.CLOSING;
+              window.WebSocket.CLOSED = NativeWS.CLOSED;
+            }
+          } catch (_) {}
+        }
+      })();
+    </script>
   </head>
   <body class="bg-[#F6F5F2] text-[#141413] antialiased selection:bg-[#E8E4D9] selection:text-[#141413]">
     <div id="root"></div>

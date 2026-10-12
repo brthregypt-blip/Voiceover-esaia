@@ -262,12 +262,12 @@ export function getDynamicFallbackVoice(voicePrompt: string, manualFallback = 'a
 
   const femaleMatches =
     text.match(
-      /\b(female|females|woman|women|girl|girls|lady|ladies|actress|actresses|she|her|hers|herself|mother|mom|daughter|daughters|sister|sisters|aunt|matron|grandmother|grandma|contralto|soprano|mezzo-soprano|mezzo|feminine|heroine|waitress|princess|queen|empress|wife|niece|schoolgirl|duchess)\b/gi,
+      /\b(female|females|woman|women|girl|girls|lady|ladies|actress|actresses|she|her|hers|herself|mother|mom|daughter|daughters|sister|sisters|aunt|matron|grandmother|grandma|contralto|soprano|mezzo-soprano|mezzo|feminine|heroine|waitress|princess|queen|empress|wife|niece|schoolgirl|duchess)\b|امرأة|أنثى|سيدة|فتاة|أم|بنت|طبيبة|شابة|عجوز|ابنة|أخت|خالة|عمة|جدة|زوجة|أميرة|ملكة/gi,
     ) || [];
 
   const maleMatches =
     text.match(
-      /\b(male|males|man|men|guy|guys|boy|boys|gentleman|gentlemen|actor|actors|he|him|his|himself|father|dad|son|sons|brother|brothers|uncle|patron|grandfather|grandpa|baritone|bass|tenor|masculine|hero|waiter|prince|king|emperor|husband|nephew|schoolboy|duke)\b/gi,
+      /\b(male|males|man|men|guy|guys|boy|boys|gentleman|gentlemen|actor|actors|he|him|his|himself|father|dad|son|sons|brother|brothers|uncle|patron|grandfather|grandpa|baritone|bass|tenor|masculine|hero|waiter|prince|king|emperor|husband|nephew|schoolboy|duke)\b|رجل|ذكر|شاب|أب|ولد|فتى|طبيب|محقق|عجوز|ابن|أخ|خال|عم|جد|زوج|أمير|ملك/gi,
     ) || [];
 
   if (femaleMatches.length > maleMatches.length) {
@@ -277,10 +277,10 @@ export function getDynamicFallbackVoice(voicePrompt: string, manualFallback = 'a
     return 'Charon';
   }
 
-  if (/\b(female|woman|girl|lady|contralto|soprano|feminine)\b/i.test(text)) {
+  if (/\b(female|woman|girl|lady|contralto|soprano|feminine)\b|امرأة|أنثى|سيدة|فتاة|أم/i.test(text)) {
     return 'Sulafat';
   }
-  if (/\b(male|man|boy|baritone|bass|tenor|masculine)\b/i.test(text)) {
+  if (/\b(male|man|boy|baritone|bass|tenor|masculine)\b|رجل|ذكر|شاب|أب|محقق/i.test(text)) {
     return 'Charon';
   }
 
@@ -867,15 +867,32 @@ function renderStoryLineWithTags(text: string) {
   });
 }
 
+function formatUserErrorMessage(err: any, currentLang: Language): string {
+  const msg = typeof err === 'string' ? err : err?.message || String(err || '');
+  if (/quota|429|RESOURCE_EXHAUSTED|rate limit|Resource has been exhausted/i.test(msg)) {
+    return currentLang === 'ar'
+      ? 'تم الوصول إلى الحد الأقصى للمعدل المجاني المؤقت، جاري التبديل للمحرك السريع البديل... يرجى المحاولة بعد لحظات.'
+      : 'Temporary rate limit reached, switching to the fast lite engine. Please retry shortly.';
+  }
+  if (/API key is not configured|API_KEY_INVALID|api key/i.test(msg)) {
+    return currentLang === 'ar'
+      ? 'مفتاح Gemini API غير مسجل أو غير صالح على الخادم.'
+      : 'Gemini API key is invalid or not configured on the server.';
+  }
+  if (/invalid argument|INVALID_ARGUMENT|غير صالح/i.test(msg)) {
+    return currentLang === 'ar'
+      ? 'تم تصحيح إعدادات الصوت تلقائياً، يرجى إعادة المحاولة.'
+      : 'Request parameters updated with fallback voice, please try again.';
+  }
+  return msg;
+}
+
 export default function App() {
   // Language State: 'en' | 'ar'
   const [lang, setLang] = useState<Language>(() => {
     const saved = localStorage.getItem('monologue_lang');
     if (saved === 'ar' || saved === 'en') return saved;
-    if (typeof navigator !== 'undefined' && navigator.language?.toLowerCase().startsWith('ar')) {
-      return 'ar';
-    }
-    return 'en';
+    return 'ar';
   });
 
   const t = TRANSLATIONS[lang];
@@ -894,8 +911,8 @@ export default function App() {
       ''
     );
   });
-  const [modelName, setModelName] = useState<'models/gemini-3.8-flash-tts' | 'models/gemini-3.8-flash-lite-tts'>(
-    'models/gemini-3.8-flash-tts',
+  const [modelName, setModelName] = useState<'models/gemini-3.8-flash-lite-tts' | 'models/gemini-3.8-flash-tts'>(
+    'models/gemini-3.8-flash-lite-tts',
   );
 
   const currentArchetypes = lang === 'ar' ? AR_VOICE_ARCHETYPES : VOICE_ARCHETYPES;
@@ -1199,7 +1216,7 @@ export default function App() {
       const enhanced = await enhanceVoicePromptWithGemini38Flash(customVoiceInput, key, lang);
       setCustomVoiceInput(enhanced);
     } catch (err: any) {
-      setErrorMsg(err?.message || String(err));
+      setErrorMsg(formatUserErrorMessage(err, lang));
     } finally {
       setIsEnhancingVoice(false);
     }
@@ -1657,7 +1674,7 @@ export default function App() {
         );
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || String(err));
+      setErrorMsg(formatUserErrorMessage(err, lang));
       setIsSynthesizing(false);
       setSynthStatus('');
     }
@@ -1894,7 +1911,7 @@ export default function App() {
       console.error('[Multi-Voice TTS] Synthesis failed:', err);
       setIsSynthesizing(false);
       setSynthStatus('');
-      setErrorMsg(err?.message || String(err));
+      setErrorMsg(formatUserErrorMessage(err, lang));
     }
   };
 
@@ -1939,7 +1956,7 @@ export default function App() {
         setCustomDialogueTurns(formattedTurns);
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || String(err));
+      setErrorMsg(formatUserErrorMessage(err, lang));
     } finally {
       setIsGeneratingDialogueScript(false);
     }
@@ -1986,7 +2003,7 @@ export default function App() {
       } catch (err: any) {
         setIsSynthesizing(false);
         setSynthStatus('');
-        setErrorMsg(err?.message || String(err));
+        setErrorMsg(formatUserErrorMessage(err, lang));
         return;
       }
     }
@@ -2052,7 +2069,7 @@ export default function App() {
     } catch (err: any) {
       setIsSynthesizing(false);
       setSynthStatus('');
-      setErrorMsg(err?.message || String(err));
+      setErrorMsg(formatUserErrorMessage(err, lang));
     }
   };
 

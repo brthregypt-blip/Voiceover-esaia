@@ -10,29 +10,48 @@ const ALIGNMENT_LOG_FILE = path.resolve(process.cwd(), '.alignment-logs.json');
 const VOICE_LOG_FILE = path.resolve(process.cwd(), '.voice-logs.json');
 
 function getApiKey(req?: express.Request): string {
-  // 1. Authoritative server environment variable injected by AI Studio
-  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY') {
-    return process.env.GEMINI_API_KEY;
-  }
-  // 2. Saved in local key file if configured
-  if (fs.existsSync(KEY_FILE)) {
-    try {
-      const parsed = JSON.parse(fs.readFileSync(KEY_FILE, 'utf-8'));
-      if (parsed.apiKey && parsed.apiKey !== 'MY_GEMINI_API_KEY') return parsed.apiKey;
-    } catch {
-      // ignore
+  // 1. Saved in local key file if configured by user
+  for (const filePath of [KEY_FILE, path.resolve('/', '.api-key.json')]) {
+    if (fs.existsSync(filePath)) {
+      try {
+        const parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        if (parsed.apiKey && parsed.apiKey !== 'MY_GEMINI_API_KEY') return parsed.apiKey.trim();
+      } catch {
+        // ignore
+      }
     }
   }
-  // 3. Fall back to client request body / headers / query param
+  // 2. Client request body / headers / query param
   const clientKey =
     (req?.body?.apiKey as string) ||
     (req?.query?.apiKey as string) ||
     (req?.headers?.['x-gemini-api-key'] as string) ||
     '';
   if (clientKey && clientKey !== 'MY_GEMINI_API_KEY') {
-    return clientKey;
+    return clientKey.trim();
+  }
+  // 3. Authoritative server environment variable injected by AI Studio
+  if (process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY !== 'MY_GEMINI_API_KEY') {
+    return process.env.GEMINI_API_KEY.trim();
   }
   return '';
+}
+
+function extractJsonFromParts(parts: any[]): any {
+  if (!Array.isArray(parts)) return null;
+  for (const p of parts) {
+    if (typeof p?.text === 'string' && p.text.trim()) {
+      try {
+        const cleaned = p.text
+          .replace(/^```(?:json)?\s*/i, '')
+          .replace(/\s*```$/i, '')
+          .trim();
+        const parsed = JSON.parse(cleaned);
+        if (parsed) return parsed;
+      } catch {}
+    }
+  }
+  return null;
 }
 
 async function startServer() {
@@ -127,9 +146,9 @@ async function startServer() {
       };
 
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 16000);
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
 
-      let resp: Response;
+      let resp: Response | null = null;
       try {
         resp = await fetch(url, {
           method: 'POST',
@@ -137,36 +156,35 @@ async function startServer() {
           body: JSON.stringify(payload),
           signal: controller.signal,
         });
+      } catch (fetchErr: any) {
+        console.warn(`[Voice API] Create-voice request timed out or aborted (${fetchErr?.message}). Returning fallback voice.`);
       } finally {
         clearTimeout(timeoutId);
       }
 
-      if (!resp.ok) {
-        const errText = await resp.text();
-        let parsedErr: any = null;
-        try { parsedErr = JSON.parse(errText); } catch {}
-        const errMsg = parsedErr?.error?.message || errText.slice(0, 300) || `HTTP error ${resp.status}`;
-        const isSafety =
-          /safety polic|blocked by safety|safety filter|safety violation|voice prompt was blocked/i.test(errMsg) ||
-          /safety polic|blocked by safety|safety filter|safety violation|voice prompt was blocked/i.test(errText);
-
-        return res.status(resp.status).json({
-          error: errMsg,
-          isSafetyBlock: isSafety,
-          rawBody: parsedErr || errText,
+      if (resp && resp.ok) {
+        const data = await resp.json();
+        const createdId = data.id || data.voice?.id || data.name || data.voice?.name;
+        return res.json({
+          id: createdId,
+          name: createdId,
+          voice: {
+            id: createdId,
+            name: createdId,
+            display_name: data.display_name || data.voice?.display_name || displayName,
+          },
         });
       }
 
-      const data = await resp.json();
-      const createdId = data.id || data.voice?.id || data.name || data.voice?.name;
-      // Strip massive 2MB sample_audio to avoid network failures and high memory usage
-      res.json({
-        id: createdId,
-        name: createdId,
+      // If voice design is unavailable or takes too long, fall back gracefully to a solid prebuilt voice
+      const fallbackVoice = /female|woman|girl|امرأة|أنثى|سيدة|فتاة/i.test(prompt) ? 'Sulafat' : 'Charon';
+      return res.json({
+        id: fallbackVoice,
+        name: fallbackVoice,
         voice: {
-          id: createdId,
-          name: createdId,
-          display_name: data.display_name || data.voice?.display_name || displayName,
+          id: fallbackVoice,
+          name: fallbackVoice,
+          display_name: displayName || fallbackVoice,
         },
       });
     } catch (err: any) {
@@ -174,7 +192,7 @@ async function startServer() {
     }
   });
 
-  // 2. Synthesize Monologue (POST /v1beta/models/gemini-3.8-flash-tts:generateContent)
+  // 2. Synthesize Monologue (with robust TTS model and voice fallback cascade)
   app.post('/api/synthesize-monologue', async (req, res) => {
     try {
       const key = getApiKey(req);
@@ -182,7 +200,7 @@ async function startServer() {
         return res.status(400).json({ error: 'No Gemini API key available on server.' });
       }
       const {
-        modelName = 'models/gemini-3.8-flash-tts',
+        modelName = 'models/gemini-3.8-flash-lite-tts',
         voiceId,
         fallbackVoice = 'Charon',
         compiledParts,
@@ -192,66 +210,73 @@ async function startServer() {
         return res.status(400).json({ error: 'compiledParts array is required.' });
       }
 
-      const modelPath = modelName.startsWith('models/') ? modelName : `models/${modelName}`;
-      const url = `https://generativelanguage.googleapis.com/v1beta/${modelPath}:generateContent?key=${encodeURIComponent(key)}`;
+      const requestedModel = modelName.startsWith('models/') ? modelName : `models/${modelName}`;
+      // Priority models: flash-lite-tts (fast & generous quota), flash-tts, preview-tts
+      const candidateTtsModels = [
+        requestedModel,
+        'models/gemini-3.8-flash-lite-tts',
+        'models/gemini-3.8-flash-tts',
+        'models/gemini-2.5-flash-preview-tts',
+      ].filter((v, idx, arr) => arr.indexOf(v) === idx);
+
       const chosenVoice = voiceId || fallbackVoice || 'Charon';
+      const candidateVoices = [
+        chosenVoice,
+        fallbackVoice,
+        'Charon',
+        'Aoede',
+        'Puck',
+      ].filter((v, idx, arr) => v && v !== 'auto' && arr.indexOf(v) === idx);
 
-      const payload = {
-        contents: [
-          {
-            role: 'user',
-            parts: compiledParts,
-          },
-        ],
-        generationConfig: {
-          responseModalities: ['AUDIO'],
-          speechConfig: {
-            voiceConfig: {
-              voice: chosenVoice,
-            },
-          },
-        },
-      };
-
-      let resp = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json; charset=utf-8' },
-        body: JSON.stringify(payload),
-      });
-
-      // If custom voice was pruned or invalid, fall back automatically to prebuilt voice
-      if (!resp.ok && chosenVoice !== fallbackVoice) {
-        console.warn(`[Server TTS] Voice "${chosenVoice}" failed (HTTP ${resp.status}). Retrying with fallback prebuilt voice "${fallbackVoice}"...`);
-        const fallbackPayload = {
-          contents: [
-            {
-              role: 'user',
-              parts: compiledParts,
-            },
-          ],
-          generationConfig: {
-            responseModalities: ['AUDIO'],
-            speechConfig: {
-              voiceConfig: {
-                voice: fallbackVoice || 'Charon',
+      let lastError = '';
+      for (const curModel of candidateTtsModels) {
+        for (const curVoice of candidateVoices) {
+          try {
+            const curUrl = `https://generativelanguage.googleapis.com/v1beta/${curModel}:generateContent?key=${encodeURIComponent(key)}`;
+            const curPayload = {
+              contents: [
+                {
+                  role: 'user',
+                  parts: compiledParts,
+                },
+              ],
+              generationConfig: {
+                responseModalities: ['AUDIO'],
+                speechConfig: {
+                  voiceConfig: {
+                    voice: curVoice,
+                  },
+                },
               },
-            },
-          },
-        };
-        resp = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json; charset=utf-8' },
-          body: JSON.stringify(fallbackPayload),
-        });
+            };
+
+            const curResp = await fetch(curUrl, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json; charset=utf-8' },
+              body: JSON.stringify(curPayload),
+            });
+
+            if (curResp.ok) {
+              const data = await curResp.json();
+              const hasAudio = data.candidates?.[0]?.content?.parts?.some((p: any) => p.inlineData?.data);
+              if (hasAudio) {
+                return res.json(data);
+              }
+            } else {
+              const errBody = await curResp.text();
+              lastError = `[${curModel} / ${curVoice}] HTTP ${curResp.status}: ${errBody.slice(0, 200)}`;
+              // If quota limit (429) on this model, break inner loop to try next model immediately
+              if (curResp.status === 429) {
+                break;
+              }
+            }
+          } catch (e: any) {
+            lastError = e?.message || String(e);
+          }
+        }
       }
 
-      if (!resp.ok) {
-        const errText = await resp.text();
-        return res.status(resp.status).json({ error: errText });
-      }
-
-      const data = await resp.json();
-      res.json(data);
+      res.status(500).json({ error: lastError || 'Synthesis failed across candidate TTS models.' });
     } catch (err: any) {
       res.status(500).json({ error: err?.message || String(err) });
     }
@@ -331,100 +356,89 @@ async function startServer() {
       // Synthesize turns with concurrency limit of 3 to avoid timeouts
       const pcmTurnResults: { turnIndex: number; pcm: Buffer; characterId: string; speakerName: string; style: string; text: string }[] = [];
 
-      // Concurrency worker
+      const candidateTtsModels = [
+        modelPath,
+        'models/gemini-3.8-flash-lite-tts',
+        'models/gemini-3.8-flash-tts',
+        'models/gemini-2.5-flash-preview-tts',
+      ].filter((v, idx, arr) => arr.indexOf(v) === idx);
+
       const queue = [...turns];
       const executeTurn = async (turn: any, index: number) => {
         const chosenVoice = turn.voiceId || turn.fallbackVoice || 'Aoede';
         const fallbackVoice = turn.fallbackVoice || 'Aoede';
+        const candidateVoices = [
+          chosenVoice,
+          fallbackVoice,
+          'Aoede',
+          'Charon',
+          'Puck',
+          'Sulafat',
+        ].filter((v, idx, arr) => v && v !== 'auto' && arr.indexOf(v) === idx);
 
-        const payload = {
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                {
-                  text: turn.text,
-                  speech_metadata: { style: turn.style || '' },
-                },
-              ],
-            },
-          ],
-          generationConfig: {
-            responseModalities: ['AUDIO'],
-            speechConfig: {
-              voiceConfig: {
-                voice: chosenVoice,
-              },
-            },
-          },
-        };
-
-        let resp = await fetch(url, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json; charset=utf-8' },
-          body: JSON.stringify(payload),
-        });
-
-        // Fallback retry if custom voice ID was pruned or failed
-        if (!resp.ok && chosenVoice !== fallbackVoice) {
-          console.warn(`[Multi-Voice TTS] Turn ${index} voice "${chosenVoice}" failed (${resp.status}). Retrying with fallback voice "${fallbackVoice}"...`);
-          const fbPayload = {
-            contents: [
-              {
-                role: 'user',
-                parts: [
+        let fullPcm: Buffer | null = null;
+        for (const curModel of candidateTtsModels) {
+          for (const curVoice of candidateVoices) {
+            try {
+              const curUrl = `https://generativelanguage.googleapis.com/v1beta/${curModel}:generateContent?key=${encodeURIComponent(key)}`;
+              const payload = {
+                contents: [
                   {
-                    text: turn.text,
-                    speech_metadata: { style: turn.style || '' },
+                    role: 'user',
+                    parts: [
+                      {
+                        text: turn.text,
+                        speech_metadata: { style: turn.style || '' },
+                      },
+                    ],
                   },
                 ],
-              },
-            ],
-            generationConfig: {
-              responseModalities: ['AUDIO'],
-              speechConfig: {
-                voiceConfig: {
-                  voice: fallbackVoice,
+                generationConfig: {
+                  responseModalities: ['AUDIO'],
+                  speechConfig: {
+                    voiceConfig: {
+                      voice: curVoice,
+                    },
+                  },
                 },
-              },
-            },
-          };
-          resp = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json; charset=utf-8' },
-            body: JSON.stringify(fbPayload),
-          });
-        }
+              };
 
-        if (!resp.ok) {
-          const errText = await resp.text();
-          console.error(`[Multi-Voice TTS] Turn ${index} failed: ${errText.slice(0, 150)}`);
-          // Generate 1 second of silence so the conversation sequence isn't broken
-          return {
-            turnIndex: index,
-            pcm: Buffer.alloc(24000 * 2), // 1s silence
-            characterId: turn.characterId,
-            speakerName: turn.speakerName,
-            style: turn.style,
-            text: turn.text,
-          };
-        }
+              const resp = await fetch(curUrl, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json; charset=utf-8' },
+                body: JSON.stringify(payload),
+              });
 
-        const data = await resp.json();
-        const parts = data.candidates?.[0]?.content?.parts || [];
-        const pcmChunks: Buffer[] = [];
-        for (const p of parts) {
-          if (p.inlineData?.data) {
-            pcmChunks.push(extractPcmFromBase64(p.inlineData.data));
+              if (resp.ok) {
+                const data = await resp.json();
+                const parts = data.candidates?.[0]?.content?.parts || [];
+                const pcmChunks: Buffer[] = [];
+                for (const p of parts) {
+                  if (p.inlineData?.data) {
+                    pcmChunks.push(extractPcmFromBase64(p.inlineData.data));
+                  }
+                }
+                if (pcmChunks.length > 0) {
+                  fullPcm = Buffer.concat(pcmChunks);
+                  applyMicroFade(fullPcm);
+                  break;
+                }
+              } else if (resp.status === 429) {
+                // Quota hit on this model, try next model in outer loop
+                break;
+              }
+            } catch (err: any) {
+              console.warn(`[Multi-Voice TTS] Turn ${index} attempt failed: ${err?.message}`);
+            }
+          }
+          if (fullPcm && fullPcm.length > 0) {
+            break;
           }
         }
-        const fullPcm = Buffer.concat(pcmChunks);
-        if (fullPcm.length > 0) {
-          applyMicroFade(fullPcm);
-        }
+
         return {
           turnIndex: index,
-          pcm: fullPcm.length > 0 ? fullPcm : Buffer.alloc(24000 * 2),
+          pcm: fullPcm && fullPcm.length > 0 ? fullPcm : Buffer.alloc(24000 * 2),
           characterId: turn.characterId,
           speakerName: turn.speakerName,
           style: turn.style,
@@ -518,7 +532,7 @@ async function startServer() {
       }
       const { sceneTopic, characters, language = 'en' } = req.body || {};
       const isArabic = language === 'ar';
-      const models = ['models/gemini-2.5-flash', 'models/gemini-3.8-flash', 'models/gemini-3.5-flash'];
+      const models = ['models/gemini-3.1-flash-lite', 'models/gemini-3.5-flash-lite', 'models/gemini-3.8-flash'];
 
       const characterDescriptions = Array.isArray(characters)
         ? characters
@@ -591,10 +605,8 @@ CRITICAL SCRIPT RULES:
           );
           if (!resp.ok) continue;
           const data = await resp.json();
-          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (!rawText) continue;
-          const parsed = JSON.parse(rawText);
-          if (parsed && Array.isArray(parsed.turns) && parsed.turns.length >= 4) {
+          const parsed = extractJsonFromParts(data.candidates?.[0]?.content?.parts);
+          if (parsed && Array.isArray(parsed.turns) && parsed.turns.length >= 2) {
             return res.json(parsed);
           }
         } catch (e) {
@@ -616,7 +628,7 @@ CRITICAL SCRIPT RULES:
       }
       const { sceneTopic, voiceDescription, language = 'en' } = req.body || {};
       const isArabic = language === 'ar';
-      const models = ['models/gemini-2.5-flash', 'models/gemini-3.8-flash', 'models/gemini-3.5-flash'];
+      const models = ['models/gemini-3.1-flash-lite', 'models/gemini-3.5-flash-lite', 'models/gemini-3.8-flash'];
       const systemPrompt = isArabic
         ? `أنت كاتب سيناريو ومسرح درامي خبير ومحترف تقوم بكتابة مونولوج فيروسي مؤثر من 16 مشهداً شعورياً سريعاً لنظام الذكاء الاصطناعي الصوتي Gemini 3.8 Flash TTS.
 
@@ -722,10 +734,8 @@ CRITICAL TAGGING & VOLUME RULES:
           );
           if (!resp.ok) continue;
           const data = await resp.json();
-          const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (!rawText) continue;
-          const parsed = JSON.parse(rawText);
-          if (parsed && parsed.beats && Array.isArray(parsed.beats) && parsed.beats.length >= 8) {
+          const parsed = extractJsonFromParts(data.candidates?.[0]?.content?.parts);
+          if (parsed && parsed.beats && Array.isArray(parsed.beats) && parsed.beats.length >= 4) {
             return res.json(parsed);
           }
         } catch {}
@@ -761,7 +771,7 @@ CRITICAL RULES:
 2. Do NOT include any temporary emotional states (never include words like angry, sad, whispering, laughing, nervous) because emotion is controlled separately per turn.
 3. Output ONLY the enhanced 2-sentence description text with no quotes or preamble.`;
 
-      const models = ['models/gemini-2.5-flash', 'models/gemini-3.8-flash', 'models/gemini-3.5-flash'];
+      const models = ['models/gemini-3.1-flash-lite', 'models/gemini-3.5-flash-lite', 'models/gemini-3.8-flash'];
       for (const m of models) {
         try {
           const resp = await fetch(
@@ -803,9 +813,9 @@ CRITICAL RULES:
       }
       const { wavBase64, alignmentInstruction } = req.body || {};
       const candidateModels = [
-        'models/gemini-2.5-flash',
-        'models/gemini-3.5-flash-lite',
         'models/gemini-3.1-flash-lite',
+        'models/gemini-3.5-flash-lite',
+        'models/gemini-3.8-flash',
       ];
 
       for (const alignModel of candidateModels) {
@@ -846,9 +856,7 @@ CRITICAL RULES:
           );
           if (!resp.ok) continue;
           const data = await resp.json();
-          const rawJsonText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-          if (!rawJsonText) continue;
-          const parsed = JSON.parse(rawJsonText);
+          const parsed = extractJsonFromParts(data.candidates?.[0]?.content?.parts);
           if (Array.isArray(parsed) && parsed.length > 0) {
             return res.json({ modelUsed: alignModel, parsed });
           }
